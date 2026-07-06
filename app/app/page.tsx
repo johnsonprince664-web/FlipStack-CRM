@@ -6,6 +6,7 @@ import { Customer, InventoryItem, Haul, Bundle, Profile } from "@/lib/types";
 import { PLANS, canUseFeature, PlanId } from "@/lib/plans";
 
 type View = "dashboard" | "inventory" | "customers" | "orders" | "hauls" | "shipping" | "reports" | "plans";
+type DashboardRange = "this_month" | "last_month" | "all_time";
 
 const defaultItem = {
   name: "",
@@ -23,6 +24,9 @@ const defaultItem = {
 };
 
 export default function AppPage() {
+  const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<any | null>(null);
   const supabase = useMemo(() => createBrowserSupabase(), []);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState("");
@@ -39,6 +43,8 @@ export default function AppPage() {
   const [shippingCost, setShippingCost] = useState(0);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [revenueGoal, setRevenueGoal] = useState(1000);
+  const [dashboardRange, setDashboardRange] = useState<DashboardRange>("this_month");
 
   const disabled = profile?.account_status === "disabled";
   const plan = (profile?.plan || "side_hustle") as PlanId;
@@ -74,6 +80,45 @@ export default function AppPage() {
     refresh();
   }, []);
 
+  const today = new Date();
+  const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const thisMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const lastMonthKey = `${lastMonthStart.getFullYear()}-${String(lastMonthStart.getMonth() + 1).padStart(2, "0")}`;
+  const dashboardPeriodKey = dashboardRange === "last_month" ? lastMonthKey : dashboardRange === "all_time" ? "all-time" : thisMonthKey;
+  const revenueGoalStorageKey = `flipstack_revenue_goal_${dashboardPeriodKey}`;
+
+  const dashboardRangeLabel = dashboardRange === "all_time"
+    ? "All-time Dashboard"
+    : dashboardRange === "last_month"
+      ? `${lastMonthStart.toLocaleString(undefined, { month: "long", year: "numeric" })} Dashboard`
+      : `${today.toLocaleString(undefined, { month: "long", year: "numeric" })} Dashboard`;
+
+  function rowDate(row: any) {
+    const value = row?.sold_at || row?.paid_at || row?.delivered_at || row?.created_at || row?.updated_at;
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+
+  function isInDashboardRange(row: any) {
+    if (dashboardRange === "all_time") return true;
+    const date = rowDate(row);
+    if (!date) return false;
+    const start = dashboardRange === "last_month" ? lastMonthStart : thisMonthStart;
+    const end = dashboardRange === "last_month" ? thisMonthStart : nextMonthStart;
+    return date >= start && date < end;
+  }
+
+  useEffect(() => {
+    const savedGoal = window.localStorage.getItem(revenueGoalStorageKey);
+    if (savedGoal && !Number.isNaN(Number(savedGoal))) {
+      setRevenueGoal(Number(savedGoal));
+    } else {
+      setRevenueGoal(1000);
+    }
+  }, [revenueGoalStorageKey]);
+
   const activeInventoryCount = items.filter(i => i.status !== "sold").length;
   const incomingHaulCount = hauls.filter(h => h.status !== "received" && h.status !== "cancelled").length;
   const incomingHaulItems = hauls.reduce((sum, h) => sum + Number((h as any).item_count || 0), 0);
@@ -89,6 +134,28 @@ export default function AppPage() {
     + bundles.reduce((sum, b) => sum + Number(b.deposit_paid || 0), 0);
   const profit = revenue - capital;
 
+  const dashboardItems = items.filter(isInDashboardRange);
+  const dashboardBundles = bundles.filter(isInDashboardRange);
+  const dashboardHauls = hauls.filter(isInDashboardRange);
+
+  const dashboardRevenue = dashboardItems
+    .filter(i => i.status !== "personal_rotation")
+    .reduce((sum, i) => sum + Number(i.sold_price || i.target_sale_price || 0), 0)
+    + dashboardBundles.reduce((sum, b) => sum + Number(b.bundle_price || 0), 0);
+
+  const dashboardCapital = dashboardItems.reduce((sum, i) => sum + Number(i.product_cost || 0) + Number(i.allocated_shipping_cost || 0), 0);
+  const dashboardDeposits = dashboardItems.reduce((sum, i) => sum + Number(i.deposit_paid || 0), 0)
+    + dashboardBundles.reduce((sum, b) => sum + Number(b.deposit_paid || 0), 0);
+  const dashboardProfit = dashboardRevenue - dashboardCapital;
+  const dashboardActiveHolds = dashboardItems.filter(i => i.status === "pre_sold");
+  const revenueGoalProgress = revenueGoal > 0 ? Math.min(100, (dashboardRevenue / revenueGoal) * 100) : 0;
+
+  function updateRevenueGoal(value: number) {
+    const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
+    setRevenueGoal(safeValue);
+    window.localStorage.setItem(revenueGoalStorageKey, String(safeValue));
+  }
+
   const filteredItems = items.filter(item => {
     const q = search.toLowerCase();
     if (!q) return true;
@@ -100,27 +167,84 @@ export default function AppPage() {
     window.location.href = "/";
   }
 
-  async function createCustomer(e: FormEvent<HTMLFormElement>) {
+  async function createCustomer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (disabled) return setMessage("Account disabled. Rectify your limit first.");
-    const fd = new FormData(e.currentTarget);
+
+    const form = new FormData(e.currentTarget);
+
     const payload = {
-      name: String(fd.get("name") || ""),
-      instagram_handle: String(fd.get("instagram") || ""),
-      snapchat_handle: String(fd.get("snapchat") || ""),
-      depop_handle: String(fd.get("depop") || ""),
-      notes: String(fd.get("notes") || "")
+      name: String(form.get("name") || ""),
+      instagram_handle: String(form.get("instagram_handle") || ""),
+      snapchat_handle: String(form.get("snapchat_handle") || ""),
+      depop_handle: String(form.get("depop_handle") || ""),
+      notes: String(form.get("notes") || ""),
     };
-    const { error } = await supabase.from("customers").insert(payload);
-    if (error) setMessage(error.message);
-    else {
-      setMessage("Customer saved.");
+
+    try {
+      if (editingCustomer?.id) {
+        const { error } = await supabase
+          .from("customers")
+          .update(payload)
+          .eq("id", editingCustomer.id);
+
+        if (error) throw error;
+
+        setMessage("Customer updated.");
+      } else {
+        const { error } = await supabase
+          .from("customers")
+          .insert(payload);
+
+        if (error) throw error;
+
+        setMessage("Customer added.");
+      }
+
+      const { data, error: reloadError } = await supabase
+        .from("customers")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (reloadError) throw reloadError;
+
+      setCustomers((data || []) as Customer[]);
+      setEditingCustomer(null);
+      setShowCustomerForm(false);
       e.currentTarget.reset();
-      refresh();
+    } catch (err: any) {
+      setMessage(err.message || "Could not save customer.");
     }
   }
 
+  async function deleteCustomer(customerId: string) {
+    const confirmed = window.confirm(
+      "Delete this customer? This cannot be undone."
+    );
 
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from("customers")
+        .delete()
+        .eq("id", customerId);
+
+      if (error) throw error;
+
+      const { data, error: reloadError } = await supabase
+        .from("customers")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (reloadError) throw reloadError;
+
+      setCustomers((data || []) as Customer[]);
+      if (selectedCustomer?.id === customerId) setSelectedCustomer(null);
+      setMessage("Customer deleted.");
+    } catch (err: any) {
+      setMessage(err.message || "Could not delete customer.");
+    }
+  }
   async function uploadItemImages(itemId: string, fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
 
@@ -284,16 +408,30 @@ export default function AppPage() {
     refresh();
   }
 
-  async function createCheckout(planTarget: "active_flipper" | "apex", interval: "monthly" | "yearly") {
-    const res = await fetch("/api/stripe/create-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ plan: planTarget, interval })
-    });
-    const json = await res.json();
-    if (!res.ok) return setMessage(json.error || "Could not start checkout.");
-    window.location.href = json.url;
+  function createCheckout(planTarget: string, interval: "monthly" | "yearly") {
+  const planKey = `${String(planTarget)}_${interval}`.toLowerCase();
+
+  const planMap: Record<string, string> = {
+    active_flipper_monthly: "active_monthly",
+    active_flipper_yearly: "active_yearly",
+    active_monthly: "active_monthly",
+    active_yearly: "active_yearly",
+
+    apex_power_monthly: "apex_monthly",
+    apex_power_yearly: "apex_yearly",
+    apex_monthly: "apex_monthly",
+    apex_yearly: "apex_yearly",
+  };
+
+  const checkoutPlan = planMap[planKey];
+
+  if (!checkoutPlan) {
+    setMessage(`Invalid plan selected: ${planKey}`);
+    return;
   }
+
+  window.location.href = `/checkout?plan=${checkoutPlan}`;
+}
 
   async function getShippoRates(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -354,14 +492,14 @@ export default function AppPage() {
         </div>
         <nav className="nav">
           {nav.map(([id, label]) => (
-            <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>{label}</button>
+            <button type="button" key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>{label}</button>
           ))}
         </nav>
         <div className="card card-pad" style={{marginTop: 18}}>
           <p className="eyebrow">Current plan</p>
           <h3>{PLANS[plan]?.name}</h3>
           <p className="muted">{accountLoad} account load / {Number.isFinite(PLANS[plan].accountLoadLimit) ? PLANS[plan].accountLoadLimit : "Unlimited"}</p>
-          <button className="btn btn-secondary" onClick={signOut}>Logout</button>
+          <button type="button" className="btn btn-secondary" onClick={signOut}>Logout</button>
         </div>
       </aside>
 
@@ -384,33 +522,161 @@ export default function AppPage() {
 
         {view === "dashboard" && (
           <section className="grid">
-            <div className="card card-pad">
+            <div className="card card-pad dashboard-hero">
               <img className="logo-lockup" src="/assets/flipstack-app-lockup-transparent.png" alt="FlipStack" />
-              <h2>Welcome to your live FlipStack workspace.</h2>
-              <p className="muted">This version is database-backed with Supabase Auth, RLS, plans, labels, hauls, and account enforcement.</p>
+              <div>
+                <h2>Welcome to your live FlipStack workspace.</h2>
+                <p className="muted">This dashboard is clickable and monthly by default: jump into inventory, customer ledgers, hauls, orders, and reports from here.</p>
+              </div>
+              <div className="dashboard-quick-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setEditingItem(null);
+                    setShowInventoryForm(true);
+                    setView("inventory");
+                  }}
+                >
+                  + Add inventory
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setEditingCustomer(null);
+                    setShowCustomerForm(true);
+                    setView("customers");
+                  }}
+                >
+                  + Add customer
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setView("orders")}>Create order</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setView("hauls")}>Add haul</button>
+              </div>
             </div>
+
+            <div className="card card-pad dashboard-period-card">
+              <div>
+                <p className="eyebrow">Dashboard period</p>
+                <h3>{dashboardRangeLabel}</h3>
+                <p className="muted">Dashboard numbers reset by month. Reports still keep all-time totals.</p>
+              </div>
+              <div className="period-toggle-group" aria-label="Dashboard period filter">
+                <button
+                  type="button"
+                  className={dashboardRange === "this_month" ? "btn btn-primary compact-action" : "btn btn-secondary compact-action"}
+                  onClick={() => setDashboardRange("this_month")}
+                >
+                  This Month
+                </button>
+                <button
+                  type="button"
+                  className={dashboardRange === "last_month" ? "btn btn-primary compact-action" : "btn btn-secondary compact-action"}
+                  onClick={() => setDashboardRange("last_month")}
+                >
+                  Last Month
+                </button>
+                <button
+                  type="button"
+                  className={dashboardRange === "all_time" ? "btn btn-primary compact-action" : "btn btn-secondary compact-action"}
+                  onClick={() => setDashboardRange("all_time")}
+                >
+                  All Time
+                </button>
+              </div>
+            </div>
+
             <div className="metric-grid">
-              <div className="card metric"><span>Projected Revenue</span><strong>${revenue.toFixed(2)}</strong></div>
-              <div className="card metric"><span>Capital Out</span><strong>${capital.toFixed(2)}</strong></div>
-              <div className="card metric"><span>Projected Profit</span><strong className="good">${profit.toFixed(2)}</strong></div>
-              <div className="card metric"><span>Deposits</span><strong>${deposits.toFixed(2)}</strong></div>
+              <button type="button" className="card metric dashboard-click-card" onClick={() => setView("reports")}>
+                <span>Projected Revenue</span>
+                <strong>${dashboardRevenue.toFixed(2)}</strong>
+                <small>Open reports</small>
+              </button>
+              <button type="button" className="card metric dashboard-click-card" onClick={() => setView("reports")}>
+                <span>Capital Out</span>
+                <strong>${dashboardCapital.toFixed(2)}</strong>
+                <small>Open reports</small>
+              </button>
+              <button type="button" className="card metric dashboard-click-card" onClick={() => setView("reports")}>
+                <span>Projected Profit</span>
+                <strong className="good">${dashboardProfit.toFixed(2)}</strong>
+                <small>Open reports</small>
+              </button>
+              <button type="button" className="card metric dashboard-click-card" onClick={() => setView("customers")}>
+                <span>Deposits</span>
+                <strong>${dashboardDeposits.toFixed(2)}</strong>
+                <small>Open customers</small>
+              </button>
             </div>
+
+            <div className="card card-pad revenue-goal-card">
+              <div className="row-head">
+                <div>
+                  <h3>Revenue goal</h3>
+                  <p className="muted">${dashboardRevenue.toFixed(2)} of ${revenueGoal.toFixed(2)} projected revenue for this period</p>
+                </div>
+                <label className="revenue-goal-input">
+                  Goal
+                  <input
+                    type="number"
+                    min="0"
+                    step="25"
+                    value={revenueGoal}
+                    onChange={(e) => updateRevenueGoal(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+              <div className="goal-bar" aria-label="Revenue goal progress">
+                <div style={{ width: `${revenueGoalProgress}%` }} />
+              </div>
+              <div className="dashboard-quick-actions">
+                <button type="button" className="btn btn-primary compact-action" onClick={() => setView("reports")}>Open reports</button>
+                <button type="button" className="btn btn-secondary compact-action" onClick={() => setView("inventory")}>Open inventory</button>
+              </div>
+            </div>
+
             <div className="two-col">
               <div className="card card-pad">
-                <h3>Active holds</h3>
+                <div className="row-head">
+                  <h3>Active holds</h3>
+                  <button type="button" className="btn btn-secondary btn-small" onClick={() => { setSearch("pre_sold"); setView("inventory"); }}>Open holds</button>
+                </div>
                 <div className="table-list">
-                  {items.filter(i => i.status === "pre_sold").map(i => (
-                    <div className="row-card" key={i.id}>
-                      <div className="row-head"><strong>{i.name}</strong><span className="pill pill-warn">${i.deposit_paid} deposit</span></div>
+                  {dashboardActiveHolds.length === 0 && <p className="muted">No active holds in this dashboard period. Add a pre-sold inventory item to see it here.</p>}
+                  {dashboardActiveHolds.slice(0, 5).map(i => (
+                    <button
+                      type="button"
+                      className="row-card dashboard-row-button"
+                      key={i.id}
+                      onClick={() => {
+                        setEditingItem(i);
+                        setShowInventoryForm(true);
+                        setView("inventory");
+                      }}
+                    >
+                      <div className="row-head">
+                        <strong>{i.name}</strong>
+                        <span className="pill pill-warn">${i.deposit_paid} deposit</span>
+                      </div>
                       <p className="muted">{i.brand} • {i.size}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
               <div className="card card-pad">
-                <h3>Haul watch</h3>
+                <div className="row-head">
+                  <h3>Haul watch</h3>
+                  <button type="button" className="btn btn-secondary btn-small" onClick={() => setView("hauls")}>Open hauls</button>
+                </div>
                 <div className="table-list">
-                  {hauls.slice(0,5).map(h => <div className="row-card" key={h.id}><strong>{h.name}</strong><p className="muted">{h.agent_name} • {h.status}</p></div>)}
+                  {dashboardHauls.length === 0 && <p className="muted">No hauls in this dashboard period. Add a haul to start tracking shipping.</p>}
+                  {dashboardHauls.slice(0, 5).map(h => (
+                    <button type="button" className="row-card dashboard-row-button" key={h.id} onClick={() => setView("hauls")}>
+                      <strong>{h.name}</strong>
+                      <p className="muted">{h.agent_name} • {h.status}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -419,29 +685,156 @@ export default function AppPage() {
 
         {view === "inventory" && (
           <section className="grid">
-            <div className="card card-pad">
+            <div className="page-actions inventory-top-actions">
+              <button
+                type="button"
+                className="btn btn-primary compact-action"
+                onClick={() => {
+                  setEditingItem(null);
+                  setShowInventoryForm((open) => !open);
+                }}
+              >
+                {showInventoryForm ? "Close Catalog" : "+ Catalog"}
+              </button>
+
+              <div className="inventory-allocate-bar">
+                <label className="inventory-allocate-cost">
+                  Shipping
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={shippingCost}
+                    onChange={e => setShippingCost(Number(e.target.value))}
+                  />
+                </label>
+                <span className="pill pill-green">{selectedShippingIds.length} selected</span>
+                <button className="btn btn-primary compact-action" type="button" onClick={allocateShipping}>
+                  Allocate
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="card card-pad"
+              style={{ display: showInventoryForm || editingItem ? "block" : "none" }}
+            >
               <h3>{editingItem ? "Edit item" : "Add inventory item"}</h3>
+
               <form className="form-grid" onSubmit={saveItem}>
                 <label>Name<input name="name" defaultValue={editingItem?.name || ""} required /></label>
                 <label>Brand<input name="brand" defaultValue={editingItem?.brand || ""} /></label>
-                <label>Category<input name="category" defaultValue={editingItem?.category || ""} /></label>
-                <label>Colorway<input name="colorway" defaultValue={editingItem?.colorway || ""} /></label>
-                <label>Size<input name="size" defaultValue={editingItem?.size || ""} /></label>
-                <label>Source<input name="source" defaultValue={editingItem?.source || "Agent"} /></label>
-                <label>Status
-                  <select name="status" defaultValue={editingItem?.status || "available"}>
-                    <option value="available">Available</option>
-                    <option value="pre_sold">Pre-Sold</option>
-                    <option value="sold">Sold</option>
-                    <option value="personal_rotation">Personal Rotation</option>
+
+                <label>
+                  Category
+                  <select className="flipstack-select" name="category" defaultValue={editingItem?.category || ""}>
+                    <option value="">Select category</option>
+                    <option value="shoes">Shoes</option>
+                    <option value="hoodies">Hoodies</option>
+                    <option value="shirts">Shirts</option>
+                    <option value="pants">Pants</option>
+                    <option value="jeans">Jeans</option>
+                    <option value="shorts">Shorts</option>
+                    <option value="jackets">Jackets</option>
+                    <option value="hats">Hats</option>
+                    <option value="accessories">Accessories</option>
+                    <option value="electronics">Electronics</option>
+                    <option value="collectibles">Collectibles</option>
+                    <option value="other">Other</option>
                   </select>
                 </label>
+
+                <label>
+                  Colorway
+                  <select className="flipstack-select" name="colorway" defaultValue={editingItem?.colorway || ""}>
+                    <option value="">Select color</option>
+                    <option value="black">Black</option>
+                    <option value="white">White</option>
+                    <option value="gray">Gray</option>
+                    <option value="red">Red</option>
+                    <option value="blue">Blue</option>
+                    <option value="green">Green</option>
+                    <option value="brown">Brown</option>
+                    <option value="tan">Tan / Beige</option>
+                    <option value="pink">Pink</option>
+                    <option value="purple">Purple</option>
+                    <option value="yellow">Yellow</option>
+                    <option value="orange">Orange</option>
+                    <option value="multi">Multi-color</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+
+                <label>
+                  Size
+                  <select className="flipstack-select" name="size" defaultValue={editingItem?.size || ""}>
+                    <option value="">Select size</option>
+                    <option value="one_size">One Size</option>
+                    <option value="xs">XS</option>
+                    <option value="s">S</option>
+                    <option value="m">M</option>
+                    <option value="l">L</option>
+                    <option value="xl">XL</option>
+                    <option value="xxl">XXL</option>
+                    <option value="men_7">Men 7</option>
+                    <option value="men_8">Men 8</option>
+                    <option value="men_9">Men 9</option>
+                    <option value="men_10">Men 10</option>
+                    <option value="men_11">Men 11</option>
+                    <option value="men_12">Men 12</option>
+                    <option value="women_6">Women 6</option>
+                    <option value="women_7">Women 7</option>
+                    <option value="women_8">Women 8</option>
+                    <option value="women_9">Women 9</option>
+                    <option value="women_10">Women 10</option>
+                    <option value="28">28</option>
+                    <option value="30">30</option>
+                    <option value="32">32</option>
+                    <option value="34">34</option>
+                    <option value="36">36</option>
+                    <option value="38">38</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+
+                <label>
+                  Source
+                  <select className="flipstack-select" name="source" defaultValue={editingItem?.source || "Agent"}>
+                    <option value="Agent">Agent</option>
+                    <option value="personal_closet">Personal closet</option>
+                    <option value="thrift_store">Thrift store</option>
+                    <option value="outlet">Outlet</option>
+                    <option value="online_deal">Online deal</option>
+                    <option value="facebook_marketplace">Facebook Marketplace</option>
+                    <option value="offerup">OfferUp</option>
+                    <option value="garage_sale">Garage sale</option>
+                    <option value="bulk_lot">Bulk lot</option>
+                    <option value="friend_family">Friend / family</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+
+                <label>Status
+                  <select className="flipstack-select" name="status" defaultValue={editingItem?.status || "available"}>
+                    <option value="available">Available</option>
+                    <option value="draft">Draft</option>
+                    <option value="listed">Listed</option>
+                    <option value="reserved">Reserved</option>
+                    <option value="pre_sold">Pre-Sold</option>
+                    <option value="sold">Sold</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="returned">Returned</option>
+                    <option value="personal_rotation">Personal Rotation</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+
                 <label>Buyer
-                  <select name="customer_id" defaultValue={editingItem?.customer_id || ""}>
+                  <select className="flipstack-select" name="customer_id" defaultValue={editingItem?.customer_id || ""}>
                     <option value="">None</option>
                     {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </label>
+
                 <label>Product cost<input name="product_cost" type="number" step="0.01" defaultValue={editingItem?.product_cost || 0} /></label>
                 <label>Shipping cost<input name="allocated_shipping_cost" type="number" step="0.01" defaultValue={editingItem?.allocated_shipping_cost || 0} /></label>
                 <label>Target sale<input name="target_sale_price" type="number" step="0.01" defaultValue={editingItem?.target_sale_price || 0} /></label>
@@ -453,39 +846,62 @@ export default function AppPage() {
               </form>
             </div>
 
-            <div className="card card-pad">
-              <h3>Selective landed cost</h3>
-              <div className="form-grid">
-                <label>Total shipping cost<input type="number" step="0.01" value={shippingCost} onChange={e => setShippingCost(Number(e.target.value))} /></label>
-                <div><p className="muted">{selectedShippingIds.length} selected</p><button className="btn btn-primary" onClick={allocateShipping}>Allocate shipping</button></div>
-              </div>
-            </div>
 
-            <div className="table-list">
-              {filteredItems.map(item => (
-                <div className="card card-pad" key={item.id}>
-                  <div className="row-head">
+            <div className="catalog-card-grid">
+              {filteredItems.map((item: any) => (
+                <div
+                  className="row-card catalog-crm-card clickable-card"
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setEditingItem(item as InventoryItem);
+                    setShowInventoryForm(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      setEditingItem(item as InventoryItem);
+                      setShowInventoryForm(true);
+                    }
+                  }}
+                >
+                  <label className="inventory-select-corner" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedShippingIds.includes(item.id)}
+                      onChange={(e) => setSelectedShippingIds(prev => e.target.checked ? [...prev, item.id] : prev.filter(id => id !== item.id))}
+                    />
+                    <span>Allocate</span>
+                  </label>
+
+                  <div className="row-head catalog-card-head">
                     <div>
                       <strong>{item.name}</strong>
-                      <p className="muted">{item.brand} • {item.size} • {item.status.replace("_", " ")}</p>
+                      <p className="muted">{item.brand} • {item.size} • {String(item.status || "").replace("_", " ")}</p>
                     </div>
                     <span className="pill pill-green">${(Number(item.product_cost) + Number(item.allocated_shipping_cost)).toFixed(2)} landed</span>
                   </div>
-                  <p>Target: ${item.target_sale_price} • Deposit: ${item.deposit_paid}</p>
+
                   {item.image_urls?.length > 0 && (
-                    <div style={{display: "flex", gap: 8, flexWrap: "wrap"}}>
-                      {item.image_urls.slice(0, 4).map((url) => (
-                        <img key={url} src={url} alt={item.name} style={{width: 74, height: 74, objectFit: "cover", borderRadius: 14, border: "1px solid var(--line)"}} />
+                    <div className="catalog-image-strip">
+                      {item.image_urls.slice(0, 4).map((url: string) => (
+                        <img key={url} src={url} alt={item.name} />
                       ))}
                     </div>
                   )}
-                  <div style={{display: "flex", gap: 10, flexWrap: "wrap"}}>
-                    <label style={{display: "flex", alignItems: "center", gap: 8, width: "auto"}}>
-                      <input style={{width: "auto"}} type="checkbox" checked={selectedShippingIds.includes(item.id)} onChange={(e) => setSelectedShippingIds(prev => e.target.checked ? [...prev, item.id] : prev.filter(id => id !== item.id))} />
-                      Allocate shipping
-                    </label>
-                    <button className="btn btn-secondary" onClick={() => setEditingItem(item)}>Edit</button>
-                    <button className="btn btn-secondary" onClick={() => deleteItem(item.id)}>Delete</button>
+
+                  <div className="customer-detail-grid">
+                    <div className="customer-detail"><span className="muted">Target</span><strong>${item.target_sale_price || 0}</strong></div>
+                    <div className="customer-detail"><span className="muted">Deposit</span><strong>${item.deposit_paid || 0}</strong></div>
+                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "—"}</strong></div>
+                  </div>
+
+                  {item.notes && <p className="muted">{item.notes}</p>}
+
+                  <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+                    <button className="btn btn-secondary" type="button" onClick={() => { setEditingItem(item as InventoryItem); setShowInventoryForm(true); }}>Edit</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => deleteItem(item.id)}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -494,32 +910,183 @@ export default function AppPage() {
         )}
 
         {view === "customers" && (
-          <section className="two-col">
-            <div className="card card-pad">
-              <h3>Add customer</h3>
+          <section className="grid">
+            <div className="page-actions">
+              <button
+                type="button"
+                className="btn btn-primary compact-action"
+                onClick={() => {
+                  if (editingCustomer) setEditingCustomer(null);
+                  setShowCustomerForm((open) => !open);
+                }}
+              >
+                {showCustomerForm ? "Close Customer" : "+ Customer"}
+              </button>
+            </div>
+
+            <div
+              className="card card-pad"
+              style={{ display: showCustomerForm ? "block" : "none" }}
+            >
+              <h3>{editingCustomer ? "Edit customer" : "Add customer"}</h3>
               <form className="form-grid" onSubmit={createCustomer}>
-                <label>Name<input name="name" required /></label>
-                <label>Instagram<input name="instagram" /></label>
-                <label>Snapchat<input name="snapchat" /></label>
-                <label>Depop<input name="depop" /></label>
-                <label className="full">Notes<textarea name="notes" /></label>
-                <button disabled={disabled} className="btn btn-primary" type="submit">Save customer</button>
+                <label>
+                  Name
+                  <input
+                    name="name"
+                    defaultValue={editingCustomer?.name || ""}
+                    required
+                  />
+                </label>
+
+                <label>
+                  Instagram
+                  <input
+                    name="instagram_handle"
+                    defaultValue={editingCustomer?.instagram_handle || ""}
+                  />
+                </label>
+
+                <label>
+                  Snapchat
+                  <input
+                    name="snapchat_handle"
+                    defaultValue={editingCustomer?.snapchat_handle || ""}
+                  />
+                </label>
+
+                <label>
+                  Depop
+                  <input
+                    name="depop_handle"
+                    defaultValue={editingCustomer?.depop_handle || ""}
+                  />
+                </label>
+
+                <label className="full">
+                  Notes
+                  <textarea
+                    name="notes"
+                    defaultValue={editingCustomer?.notes || ""}
+                  />
+                </label>
+
+                <button disabled={disabled} className="btn btn-primary" type="submit">
+                  {editingCustomer ? "Save changes" : "Save customer"}
+                </button>
+
+                {editingCustomer && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setEditingCustomer(null);
+                      setShowCustomerForm(false);
+                    }}
+                  >
+                    Cancel edit
+                  </button>
+                )}
               </form>
             </div>
+
             <div className="card card-pad">
               <h3>Buyer directory</h3>
-              <div className="table-list">
-                {customers.map(c => (
-                  <button className="row-card" style={{color: "inherit", textAlign: "left", cursor: "pointer"}} key={c.id} onClick={() => setSelectedCustomer(c)}>
-                    <div className="row-head"><strong>{c.name}</strong><span className="pill">{c.vouch_count} vouches</span></div>
-                    <p className="muted">IG: {c.instagram_handle || "—"} • Snap: {c.snapchat_handle || "—"} • Depop: {c.depop_handle || "—"}</p>
-                  </button>
-                ))}
+              <div className="customer-card-grid">
+                {customers.map((c: any) => {
+                  const customerItems = items.filter((item: any) => item.customer_id === c.id);
+                  const customerBundles = bundles.filter((bundle: any) => bundle.customer_id === c.id);
+                  const totalTarget = customerItems.reduce((sum, item: any) => sum + Number(item.target_sale_price || 0), 0)
+                    + customerBundles.reduce((sum, bundle: any) => sum + Number(bundle.bundle_price || 0), 0);
+                  const totalDeposits = customerItems.reduce((sum, item: any) => sum + Number(item.deposit_paid || 0), 0)
+                    + customerBundles.reduce((sum, bundle: any) => sum + Number(bundle.deposit_paid || 0), 0);
+
+                  const hiddenFields = new Set([
+                    "id",
+                    "created_at",
+                    "updated_at",
+                    "user_id",
+                    "name",
+                  ]);
+
+                  const fields = Object.entries(c).filter(([key, value]) => {
+                    return !hiddenFields.has(key) && value !== null && value !== "";
+                  });
+
+                  const prettyLabel = (key: string) =>
+                    key
+                      .replaceAll("_", " ")
+                      .replace(/\b\w/g, (char) => char.toUpperCase());
+
+                  const prettyValue = (value: any) => {
+                    if (value === null || value === undefined || value === "") return "—";
+                    if (typeof value === "boolean") return value ? "Yes" : "No";
+                    if (Array.isArray(value)) return value.join(", ");
+                    if (typeof value === "object") return JSON.stringify(value);
+                    return String(value);
+                  };
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="row-card customer-crm-card clickable-card"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCustomer(c as Customer)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setSelectedCustomer(c as Customer);
+                      }}
+                    >
+                      <div className="row-head">
+                        <div>
+                          <strong>{c.name || "Unnamed customer"}</strong>
+                          <p className="muted">Tap to open full ledger</p>
+                        </div>
+                        <span className="pill pill-green">${Number(c.total_spent || totalTarget || 0).toFixed(2)}</span>
+                      </div>
+
+                      <div className="customer-detail-grid">
+                        <div className="customer-detail"><span className="muted">Items</span><strong>{customerItems.length}</strong></div>
+                        <div className="customer-detail"><span className="muted">Bundles</span><strong>{customerBundles.length}</strong></div>
+                        <div className="customer-detail"><span className="muted">Deposits</span><strong>${totalDeposits.toFixed(2)}</strong></div>
+                        <div className="customer-detail"><span className="muted">Target</span><strong>${totalTarget.toFixed(2)}</strong></div>
+                        {fields.map(([key, value]) => (
+                          <div key={key} className="customer-detail">
+                            <span className="muted">{prettyLabel(key)}</span>
+                            <strong>{prettyValue(value)}</strong>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => {
+                            setEditingCustomer(c);
+                            setShowCustomerForm(true);
+                          }}
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          onClick={() => deleteCustomer(c.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
+
             {selectedCustomer && (
               <div className="card card-pad full">
-                <div className="row-head"><h3>{selectedCustomer.name} ledger</h3><button className="btn btn-secondary" onClick={() => setSelectedCustomer(null)}>Close</button></div>
+                <div className="row-head"><h3>{selectedCustomer.name} ledger</h3><button type="button" className="btn btn-secondary" onClick={() => setSelectedCustomer(null)}>Close</button></div>
                 <p className="muted">Total spent: ${selectedCustomer.total_spent || 0}</p>
                 <div className="table-list">
                   {items.filter(i => i.customer_id === selectedCustomer.id).map(i => (
@@ -635,8 +1202,8 @@ export default function AppPage() {
                   <ul className="muted">{p.features.map(f => <li key={f}>{f}</li>)}</ul>
                   {id !== "side_hustle" && (
                     <div style={{display: "flex", gap: 10, flexWrap: "wrap"}}>
-                      <button className="btn btn-primary" onClick={() => createCheckout(id as any, "monthly")}>Monthly</button>
-                      <button className="btn btn-secondary" onClick={() => createCheckout(id as any, "yearly")}>Yearly</button>
+                      <button type="button" className="btn btn-primary" onClick={() => createCheckout(id as any, "monthly")}>Monthly</button>
+                      <button type="button" className="btn btn-secondary" onClick={() => createCheckout(id as any, "yearly")}>Yearly</button>
                     </div>
                   )}
                 </div>
@@ -649,7 +1216,7 @@ export default function AppPage() {
                 <label className="full">Access code<input name="code" type="password" /></label>
                 <button className="btn btn-primary" type="submit">Redeem</button>
               </form>
-              {profile?.founder_access && <button className="btn btn-secondary" onClick={seedFounderData}>Seed starter data into my account</button>}
+              {profile?.founder_access && <button type="button" className="btn btn-secondary" onClick={seedFounderData}>Seed starter data into my account</button>}
             </div>
           </section>
         )}

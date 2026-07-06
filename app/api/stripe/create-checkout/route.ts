@@ -1,38 +1,114 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getUserFromRequest } from "@/lib/supabase/admin";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
-const priceMap: Record<string, string | undefined> = {
-  active_flipper_monthly: process.env.STRIPE_ACTIVE_FLIPPER_MONTHLY_PRICE_ID,
-  active_flipper_yearly: process.env.STRIPE_ACTIVE_FLIPPER_YEARLY_PRICE_ID,
-  apex_monthly: process.env.STRIPE_APEX_MONTHLY_PRICE_ID,
-  apex_yearly: process.env.STRIPE_APEX_YEARLY_PRICE_ID
-};
+const PRICE_MAP = {
+  active_monthly:
+    process.env.STRIPE_ACTIVE_MONTHLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_ACTIVE_MONTHLY ||
+    process.env.STRIPE_ACTIVE_FLIPPER_MONTHLY_PRICE_ID,
+
+  active_yearly:
+    process.env.STRIPE_ACTIVE_YEARLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_ACTIVE_YEARLY ||
+    process.env.STRIPE_ACTIVE_FLIPPER_YEARLY_PRICE_ID,
+
+  apex_monthly:
+    process.env.STRIPE_APEX_MONTHLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_APEX_MONTHLY,
+
+  apex_yearly:
+    process.env.STRIPE_APEX_YEARLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_APEX_YEARLY,
+
+  active_flipper_monthly:
+    process.env.STRIPE_ACTIVE_MONTHLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_ACTIVE_MONTHLY ||
+    process.env.STRIPE_ACTIVE_FLIPPER_MONTHLY_PRICE_ID,
+
+  active_flipper_yearly:
+    process.env.STRIPE_ACTIVE_YEARLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_ACTIVE_YEARLY ||
+    process.env.STRIPE_ACTIVE_FLIPPER_YEARLY_PRICE_ID,
+
+  apex_power_monthly:
+    process.env.STRIPE_APEX_MONTHLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_APEX_MONTHLY,
+
+  apex_power_yearly:
+    process.env.STRIPE_APEX_YEARLY_PRICE_ID ||
+    process.env.STRIPE_PRICE_APEX_YEARLY,
+} as const;
+
+type PlanKey = keyof typeof PRICE_MAP;
 
 export async function POST(req: Request) {
-  const { user, error } = await getUserFromRequest(req);
-  if (!user) return NextResponse.json({ error }, { status: 401 });
+  try {
+    const body = await req.json();
+    const plan = body.plan as PlanKey | undefined;
 
-  const { plan, interval } = await req.json();
-  const price = priceMap[`${plan}_${interval}`];
-
-  if (!price) return NextResponse.json({ error: "Missing Stripe price ID for this plan." }, { status: 500 });
-
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer_email: user.email || undefined,
-    line_items: [{ price, quantity: 1 }],
-    success_url: `${siteUrl}/app?checkout=success`,
-    cancel_url: `${siteUrl}/app?checkout=cancelled`,
-    metadata: {
-      user_id: user.id,
-      plan
+    if (!plan || !(plan in PRICE_MAP)) {
+      return NextResponse.json(
+        {
+          error: "Invalid plan selected.",
+          planReceived: body.plan,
+          availablePlans: Object.keys(PRICE_MAP),
+        },
+        { status: 400 }
+      );
     }
-  });
 
-  return NextResponse.json({ url: session.url });
+    const priceId = PRICE_MAP[plan];
+
+    if (!priceId) {
+      return NextResponse.json(
+        {
+          error: "Missing Stripe price ID for this plan.",
+          planReceived: plan,
+          availablePlans: Object.keys(PRICE_MAP),
+        },
+        { status: 400 }
+      );
+    }
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3002";
+
+    const session = await stripe.checkout.sessions.create({
+      ui_mode: "embedded" as any,
+      mode: "subscription",
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      return_url: `${siteUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+      metadata: {
+        plan,
+      },
+      subscription_data: {
+        metadata: {
+          plan,
+        },
+      },
+    });
+
+    return NextResponse.json({
+      clientSecret: session.client_secret,
+    });
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown Stripe error";
+
+    console.error("Stripe checkout session error:", detail);
+
+    return NextResponse.json(
+      {
+        error: "Could not create checkout session.",
+        detail,
+      },
+      { status: 500 }
+    );
+  }
 }

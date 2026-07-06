@@ -310,3 +310,437 @@ label {
   .metric-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
 }
+.flipstack-select {
+  color: #36f5b8;
+  background: #081014;
+  border: 1px solid rgba(54, 245, 184, 0.35);
+  font-weight: 700;
+}
+
+.flipstack-select option {
+  color: #36f5b8;
+  background: #081014;
+}
+
+/* === FlipStack UI patch: CRM cards, grids, and green fields === */
+input,
+select,
+textarea,
+.flipstack-select {
+  color: var(--green) !important;
+  background: #081014;
+  border: 1px solid rgba(73, 255, 136, 0.35);
+  font-weight: 750;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(73, 255, 136, 0.55);
+}
+
+select option,
+.flipstack-select option {
+  color: var(--green);
+  background: #081014;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.flipstack-select:focus {
+  border-color: rgba(73, 255, 136, 0.75);
+  box-shadow: 0 0 0 4px rgba(73, 255, 136, 0.12);
+}
+
+.page-actions {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.compact-action {
+  width: fit-content;
+  min-width: 120px;
+  padding: 10px 14px;
+  border-radius: 14px;
+}
+
+.customer-card-grid,
+.catalog-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  align-items: stretch;
+}
+
+.customer-crm-card,
+.catalog-crm-card {
+  aspect-ratio: 1 / 1;
+  min-height: 280px;
+  border-radius: 34px;
+  padding: 22px;
+  align-content: start;
+  overflow: auto;
+}
+
+.clickable-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.clickable-card:hover,
+.clickable-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(73, 255, 136, 0.45);
+  background: rgba(73, 255, 136, 0.055);
+  outline: none;
+}
+
+.customer-detail-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.customer-detail {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.customer-detail strong {
+  color: var(--green);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: rgba(255, 70, 70, 0.15);
+  border: 1px solid rgba(255, 70, 70, 0.45);
+  color: #ff6b6b;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 70, 70, 0.25);
+}
+
+.catalog-image-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.catalog-image-strip img {
+  width: 74px;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+
+.allocate-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  color: var(--green);
+}
+
+.allocate-check input {
+  width: auto;
+}
+
+@media (max-width: 980px) {
+  .customer-card-grid,
+  .catalog-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .customer-crm-card,
+  .catalog-crm-card {
+    min-height: 235px;
+    padding: 18px;
+    border-radius: 28px;
+  }
+}
+
+@media (max-width: 620px) {
+  .customer-card-grid,
+  .catalog-card-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .customer-crm-card,
+  .catalog-crm-card {
+    aspect-ratio: auto;
+    min-height: 220px;
+  }
+}
+
+/* FlipStack blended scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(36, 185, 125, 0.65) rgba(4, 12, 10, 0.18);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(4, 12, 10, 0.18);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(30, 155, 105, 0.95), rgba(18, 96, 70, 0.95));
+  border-radius: 999px;
+  border: 2px solid rgba(4, 12, 10, 0.18);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(54, 245, 184, 0.95), rgba(24, 130, 90, 0.95));
+  border: 2px solid rgba(4, 12, 10, 0.18);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-track,
+.main::-webkit-scrollbar-track,
+.table-list::-webkit-scrollbar-track,
+.customer-card-grid::-webkit-scrollbar-track,
+.catalog-card-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+/* Inventory top-left allocate controls */
+.inventory-top-actions {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.inventory-allocate-bar {
+  display: inline-flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(73, 255, 136, 0.16);
+  border-radius: 18px;
+  background: rgba(4, 16, 9, 0.34);
+}
+
+.inventory-allocate-cost {
+  width: 140px;
+  min-width: 140px;
+  gap: 5px;
+}
+
+.inventory-allocate-cost input {
+  padding: 10px 12px;
+  border-radius: 13px;
+}
+
+@media (max-width: 720px) {
+  .inventory-allocate-bar,
+  .inventory-top-actions {
+    width: 100%;
+  }
+
+  .inventory-allocate-cost {
+    width: 100%;
+  }
+
+  .inventory-allocate-bar .btn,
+  .inventory-top-actions > .btn {
+    width: 100%;
+  }
+}
+
+/* Inventory allocation checkbox: top-left of each item card */
+.catalog-crm-card {
+  position: relative;
+  padding-top: 58px;
+}
+
+.inventory-select-corner {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(54, 245, 184, 0.35);
+  background: rgba(4, 16, 9, 0.72);
+  color: #36f5b8;
+  font-size: 0.74rem;
+  font-weight: 950;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.inventory-select-corner input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #36f5b8;
+  cursor: pointer;
+}
+
+.catalog-card-head {
+  align-items: flex-start;
+}
+
+@media (max-width: 620px) {
+  .catalog-crm-card {
+    padding-top: 54px;
+  }
+}
+
+
+/* Dashboard clickable controls */
+.dashboard-hero {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-quick-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dashboard-click-card {
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+}
+
+.dashboard-click-card:hover,
+.dashboard-click-card:focus-visible,
+.dashboard-row-button:hover,
+.dashboard-row-button:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(73,255,136,.45);
+  background: rgba(73,255,136,.055);
+  outline: none;
+}
+
+.dashboard-click-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--green);
+  font-weight: 900;
+}
+
+.dashboard-row-button {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255,255,255,.04);
+  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+}
+
+.btn-small {
+  padding: 8px 10px;
+  min-width: auto;
+  border-radius: 12px;
+  font-size: .82rem;
+}
+
+.revenue-goal-card {
+  display: grid;
+  gap: 14px;
+}
+
+.revenue-goal-input {
+  width: min(220px, 100%);
+}
+
+.goal-bar {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(73,255,136,.28);
+  background: rgba(255,255,255,.06);
+}
+
+.goal-bar > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--green), var(--cyan));
+}
+
+@media (max-width: 620px) {
+  .revenue-goal-input {
+    width: 100%;
+  }
+}
+
+/* Monthly dashboard reset controls */
+.dashboard-period-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dashboard-period-card h3 {
+  margin: 6px 0 4px;
+}
+
+.period-toggle-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.period-toggle-group .compact-action {
+  min-width: 115px;
+}
+
+@media (max-width: 620px) {
+  .dashboard-period-card {
+    align-items: stretch;
+  }
+
+  .period-toggle-group,
+  .period-toggle-group .compact-action {
+    width: 100%;
+  }
+}
