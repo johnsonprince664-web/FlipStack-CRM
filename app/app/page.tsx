@@ -1,8 +1,8 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
-import { Customer, InventoryItem, Haul, Bundle, Profile } from "@/lib/types";
+import { Customer, InventoryItem, Haul, Bundle, Profile, BundleItem } from "@/lib/types";
 import { PLANS, canUseFeature, PlanId } from "@/lib/plans";
 
 type View = "dashboard" | "inventory" | "customers" | "orders" | "hauls" | "shipping" | "reports" | "plans";
@@ -37,6 +37,10 @@ export default function AppPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [hauls, setHauls] = useState<Haul[]>([]);
   const [bundles, setBundles] = useState<Bundle[]>([]);
+  const [bundleItems, setBundleItems] = useState<BundleItem[]>([]);
+  const [editingBundle, setEditingBundle] = useState<Bundle | null>(null);
+  const [selectedBundleItemIds, setSelectedBundleItemIds] = useState<string[]>([]);
+  const [bundleItemPrices, setBundleItemPrices] = useState<Record<string, number>>({});
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedShippingIds, setSelectedShippingIds] = useState<string[]>([]);
@@ -60,12 +64,13 @@ export default function AppPage() {
     setUserId(session.user.id);
     setAccessToken(session.access_token);
 
-    const [profileRes, customersRes, itemsRes, haulsRes, bundlesRes] = await Promise.all([
+    const [profileRes, customersRes, itemsRes, haulsRes, bundlesRes, bundleItemsRes] = await Promise.all([
       supabase.from("profiles").select("*").eq("user_id", session.user.id).single(),
       supabase.from("customers").select("*").order("created_at", { ascending: false }),
       supabase.from("inventory_items").select("*").order("created_at", { ascending: false }),
       supabase.from("hauls").select("*").order("created_at", { ascending: false }),
-      supabase.from("bundles").select("*").order("created_at", { ascending: false })
+      supabase.from("bundles").select("*").order("created_at", { ascending: false }),
+      supabase.from("bundle_items").select("*").order("created_at", { ascending: false })
     ]);
 
     if (profileRes.data) setProfile(profileRes.data as Profile);
@@ -73,6 +78,7 @@ export default function AppPage() {
     setItems((itemsRes.data || []) as InventoryItem[]);
     setHauls((haulsRes.data || []) as Haul[]);
     setBundles((bundlesRes.data || []) as Bundle[]);
+    setBundleItems((bundleItemsRes.data || []) as BundleItem[]);
     setLoading(false);
   }
 
@@ -161,6 +167,89 @@ export default function AppPage() {
     if (!q) return true;
     return [item.name, item.brand, item.category, item.colorway, item.size, item.status].some(v => (v || "").toLowerCase().includes(q));
   });
+
+
+  function money(value: any) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function itemLandedCost(item: any) {
+    return Number(item?.product_cost || 0) + Number(item?.allocated_shipping_cost || 0);
+  }
+
+  function itemSalePrice(item: any) {
+    return Number(item?.sold_price || item?.target_sale_price || 0);
+  }
+
+  function itemEstimatedProfit(item: any) {
+    return itemSalePrice(item) - itemLandedCost(item);
+  }
+
+  function customerName(customerId?: string | null) {
+    if (!customerId) return "No buyer";
+    return customers.find((customer) => customer.id === customerId)?.name || "Unknown buyer";
+  }
+
+  function bundleLinesForBundle(bundleId: string) {
+    return bundleItems
+      .filter((line) => line.bundle_id === bundleId)
+      .map((line) => ({
+        ...line,
+        item: items.find((item) => item.id === line.item_id) || null,
+      }));
+  }
+
+  function bundleItemsTotal(bundleId: string) {
+    return bundleLinesForBundle(bundleId).reduce((sum, line: any) => sum + Number(line.item_price || 0), 0);
+  }
+
+  function formatExternalUrl(url?: string | null) {
+    const cleanUrl = String(url || "").trim();
+    if (!cleanUrl) return "";
+    if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) return cleanUrl;
+    return `https://${cleanUrl}`;
+  }
+
+  function toggleBundleItem(item: InventoryItem, checked: boolean) {
+    setSelectedBundleItemIds((current) => {
+      if (checked) {
+        if (current.includes(item.id)) return current;
+        return [...current, item.id];
+      }
+
+      return current.filter((id) => id !== item.id);
+    });
+
+    setBundleItemPrices((current) => {
+      if (checked) {
+        return {
+          ...current,
+          [item.id]: Number(current[item.id] || item.sold_price || item.target_sale_price || 0),
+        };
+      }
+
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
+  }
+
+  function resetBundleForm(form?: HTMLFormElement | null) {
+    setEditingBundle(null);
+    setSelectedBundleItemIds([]);
+    setBundleItemPrices({});
+    form?.reset();
+  }
+
+  function startEditBundle(bundle: Bundle) {
+    const lines = bundleItems.filter((line) => line.bundle_id === bundle.id);
+    setEditingBundle(bundle);
+    setSelectedBundleItemIds(lines.map((line) => line.item_id));
+    setBundleItemPrices(
+      Object.fromEntries(lines.map((line) => [line.item_id, Number(line.item_price || 0)]))
+    );
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -314,6 +403,7 @@ export default function AppPage() {
       product_cost: Number(fd.get("product_cost") || 0),
       allocated_shipping_cost: Number(fd.get("allocated_shipping_cost") || 0),
       target_sale_price: Number(fd.get("target_sale_price") || 0),
+      sold_price: Number(fd.get("sold_price") || 0),
       deposit_paid: Number(fd.get("deposit_paid") || 0),
       notes: String(fd.get("notes") || ""),
     };
@@ -375,7 +465,6 @@ export default function AppPage() {
       refresh();
     }
   }
-
   async function createHaul(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled) return setMessage("Account disabled. Rectify your limit first.");
@@ -384,7 +473,6 @@ export default function AppPage() {
       name: String(fd.get("name") || ""),
       agent_name: String(fd.get("agent_name") || ""),
       tracking_link: String(fd.get("tracking_link") || ""),
-      vendor_link: String(fd.get("vendor_link") || ""),
       status: String(fd.get("status") || "warehouse"),
       total_shipping_cost: Number(fd.get("total_shipping_cost") || 0),
       total_weight: Number(fd.get("total_weight") || 0),
@@ -397,28 +485,121 @@ export default function AppPage() {
     else {
       setMessage("Haul saved.");
       e.currentTarget.reset();
-      refresh();
+      await refresh();
     }
   }
-
   async function createBundle(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled) return setMessage("Account disabled. Rectify your limit first.");
-    const fd = new FormData(e.currentTarget);
-    const payload = {
+
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+
+    const selectedLines = selectedBundleItemIds
+      .map((itemId) => {
+        const item = items.find((inventoryItem) => inventoryItem.id === itemId);
+        if (!item) return null;
+        return {
+          item,
+          item_id: itemId,
+          item_price: Number(bundleItemPrices[itemId] || item.sold_price || item.target_sale_price || 0),
+        };
+      })
+      .filter(Boolean) as { item: InventoryItem; item_id: string; item_price: number }[];
+
+    const selectedTotal = selectedLines.reduce((sum, line) => sum + Number(line.item_price || 0), 0);
+    const manualBundlePrice = Number(fd.get("bundle_price") || 0);
+
+    const payload: any = {
       name: String(fd.get("name") || ""),
       customer_id: String(fd.get("customer_id") || "") || null,
-      bundle_price: Number(fd.get("bundle_price") || 0),
+      bundle_price: manualBundlePrice > 0 ? manualBundlePrice : selectedTotal,
       deposit_paid: Number(fd.get("deposit_paid") || 0),
       status: String(fd.get("status") || "hold"),
       notes: String(fd.get("notes") || "")
     };
-    const { error } = await supabase.from("bundles").insert(payload);
-    if (error) setMessage(error.message);
-    else {
-      setMessage("Bundle saved.");
-      e.currentTarget.reset();
-      refresh();
+
+    try {
+      let bundleId = editingBundle?.id || "";
+
+      if (editingBundle?.id) {
+        const { error } = await supabase
+          .from("bundles")
+          .update(payload)
+          .eq("id", editingBundle.id);
+
+        if (error) throw error;
+        bundleId = editingBundle.id;
+
+        const { error: deleteLinesError } = await supabase
+          .from("bundle_items")
+          .delete()
+          .eq("bundle_id", bundleId);
+
+        if (deleteLinesError) throw deleteLinesError;
+      } else {
+        const { data, error } = await supabase
+          .from("bundles")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        bundleId = data?.id || "";
+      }
+
+      if (selectedLines.length > 0) {
+        const { error: lineError } = await supabase.from("bundle_items").insert(
+          selectedLines.map((line) => ({
+            user_id: userId,
+            bundle_id: bundleId,
+            item_id: line.item_id,
+            item_price: line.item_price,
+          }))
+        );
+
+        if (lineError) throw lineError;
+
+        await Promise.all(
+          selectedLines.map((line) =>
+            supabase
+              .from("inventory_items")
+              .update({
+                customer_id: payload.customer_id,
+                status: payload.status === "cancelled" ? "available" : payload.status === "hold" ? "pre_sold" : "sold",
+                sold_price: line.item_price,
+              })
+              .eq("id", line.item_id)
+          )
+        );
+      }
+
+      setMessage(editingBundle ? "Bundle updated." : "Bundle saved.");
+      resetBundleForm(form);
+      await refresh();
+    } catch (err: any) {
+      setMessage(err.message || "Could not save bundle.");
+    }
+  }
+
+  async function deleteBundle(bundleId: string) {
+    if (!confirm("Delete this bundle/order?")) return;
+
+    try {
+      await supabase.from("bundle_items").delete().eq("bundle_id", bundleId);
+
+      const { error } = await supabase
+        .from("bundles")
+        .delete()
+        .eq("id", bundleId);
+
+      if (error) throw error;
+
+      if (editingBundle?.id === bundleId) resetBundleForm();
+      setMessage("Bundle deleted.");
+      await refresh();
+    } catch (err: any) {
+      setMessage(err.message || "Could not delete bundle.");
     }
   }
 
@@ -458,23 +639,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
   setMessage("Partner code redeemed. Active Flipper unlocked free for 1 year.");
   refresh();
 }
-<div className="card card-pad full">
-  <h3>Partner access</h3>
-  <p className="muted">
-    Redeem a partner code to unlock Active Flipper free for 1 year.
-  </p>
 
-  <form className="form-grid" onSubmit={redeemPartnerAccess}>
-    <label className="full">
-      Partner code
-      <input name="code" placeholder="Enter partner code" />
-    </label>
-
-    <button className="btn btn-primary" type="submit">
-      Redeem partner code
-    </button>
-  </form>
-</div>
   async function seedFounderData() {
     const res = await fetch("/api/founder/seed-demo", {
       method: "POST",
@@ -737,7 +902,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                         <strong>{i.name}</strong>
                         <span className="pill pill-warn">${i.deposit_paid} deposit</span>
                       </div>
-                      <p className="muted">{i.brand} â€¢ {i.size}</p>
+                      <p className="muted">{i.brand} • {i.size}</p>
                     </button>
                   ))}
                 </div>
@@ -752,7 +917,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {dashboardHauls.slice(0, 5).map(h => (
                     <button type="button" className="row-card dashboard-row-button" key={h.id} onClick={() => setView("hauls")}>
                       <strong>{h.name}</strong>
-                      <p className="muted">{h.agent_name} â€¢ {h.status}</p>
+                      <p className="muted">{h.agent_name} • {h.status}</p>
                     </button>
                   ))}
                 </div>
@@ -916,11 +1081,12 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                 <label>Product cost<input name="product_cost" type="number" step="0.01" defaultValue={editingItem?.product_cost || 0} /></label>
                 <label>Shipping cost<input name="allocated_shipping_cost" type="number" step="0.01" defaultValue={editingItem?.allocated_shipping_cost || 0} /></label>
                 <label>Target sale<input name="target_sale_price" type="number" step="0.01" defaultValue={editingItem?.target_sale_price || 0} /></label>
+                <label>Sold / actual price<input name="sold_price" type="number" step="0.01" defaultValue={(editingItem as any)?.sold_price || 0} /></label>
                 <label>Deposit<input name="deposit_paid" type="number" step="0.01" defaultValue={editingItem?.deposit_paid || 0} /></label>
                 <label className="full">Item photos<input name="images" type="file" accept="image/*" multiple /></label>
                 <label className="full">Notes<textarea name="notes" defaultValue={editingItem?.notes || ""} /></label>
                 <button disabled={disabled} className="btn btn-primary" type="submit">{editingItem ? "Save changes" : "Add item"}</button>
-                {editingItem && <button className="btn btn-secondary" type="button" onClick={() => setEditingItem(null)}>Cancel edit</button>}
+                {editingItem && <button className="btn btn-secondary" type="button" onClick={() => { setEditingItem(null); setShowInventoryForm(false); }}>Cancel edit</button>}
               </form>
             </div>
 
@@ -935,11 +1101,13 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   onClick={() => {
                     setEditingItem(item as InventoryItem);
                     setShowInventoryForm(true);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       setEditingItem(item as InventoryItem);
                       setShowInventoryForm(true);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }
                   }}
                 >
@@ -955,7 +1123,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   <div className="row-head catalog-card-head">
                     <div>
                       <strong>{item.name}</strong>
-                      <p className="muted">{item.brand} â€¢ {item.size} â€¢ {String(item.status || "").replace("_", " ")}</p>
+                      <p className="muted">{item.brand} • {item.size} • {String(item.status || "").replace("_", " ")}</p>
                     </div>
                     <span className="pill pill-green">${(Number(item.product_cost) + Number(item.allocated_shipping_cost)).toFixed(2)} landed</span>
                   </div>
@@ -968,18 +1136,24 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                     </div>
                   )}
 
-                  <div className="customer-detail-grid">
-                    <div className="customer-detail"><span className="muted">Target</span><strong>${item.target_sale_price || 0}</strong></div>
-                    <div className="customer-detail"><span className="muted">Deposit</span><strong>${item.deposit_paid || 0}</strong></div>
-                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "â€”"}</strong></div>
-                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "â€”"}</strong></div>
+                  <div className="customer-detail-grid item-metric-grid">
+                    <div className="customer-detail"><span className="muted">Product cost</span><strong>{money(item.product_cost)}</strong></div>
+                    <div className="customer-detail"><span className="muted">Shipping</span><strong>{money(item.allocated_shipping_cost)}</strong></div>
+                    <div className="customer-detail"><span className="muted">Total landed</span><strong>{money(itemLandedCost(item))}</strong></div>
+                    <div className="customer-detail"><span className="muted">Target sale</span><strong>{money(item.target_sale_price)}</strong></div>
+                    <div className="customer-detail"><span className="muted">Sold / actual</span><strong>{Number(item.sold_price || 0) > 0 ? money(item.sold_price) : "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Estimated profit</span><strong className={itemEstimatedProfit(item) >= 0 ? "good" : "danger"}>{money(itemEstimatedProfit(item))}</strong></div>
+                    <div className="customer-detail"><span className="muted">Deposit</span><strong>{money(item.deposit_paid)}</strong></div>
+                    <div className="customer-detail"><span className="muted">Buyer</span><strong>{customerName(item.customer_id)}</strong></div>
+                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "—"}</strong></div>
                   </div>
 
                   {item.notes && <p className="muted">{item.notes}</p>}
 
                   <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-secondary" type="button" onClick={() => { setEditingItem(item as InventoryItem); setShowInventoryForm(true); }}>Edit</button>
-                    <button className="btn btn-secondary" type="button" onClick={() => deleteItem(item.id)}>Delete</button>
+                    <button className="btn btn-danger" type="button" onClick={() => deleteItem(item.id)}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -1097,7 +1271,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                       .replace(/\b\w/g, (char) => char.toUpperCase());
 
                   const prettyValue = (value: any) => {
-                    if (value === null || value === undefined || value === "") return "â€”";
+                    if (value === null || value === undefined || value === "") return "—";
                     if (typeof value === "boolean") return value ? "Yes" : "No";
                     if (Array.isArray(value)) return value.join(", ");
                     if (typeof value === "object") return JSON.stringify(value);
@@ -1170,13 +1344,13 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {items.filter(i => i.customer_id === selectedCustomer.id).map(i => (
                     <div className="row-card" key={i.id}>
                       <strong>{i.name}</strong>
-                      <p className="muted">{i.status} â€¢ deposit ${i.deposit_paid} â€¢ target ${i.target_sale_price}</p>
+                      <p className="muted">{i.status} • deposit ${i.deposit_paid} • target ${i.target_sale_price}</p>
                     </div>
                   ))}
                   {bundles.filter(b => b.customer_id === selectedCustomer.id).map(b => (
                     <div className="row-card" key={b.id}>
                       <strong>{b.name}</strong>
-                      <p className="muted">{b.status} â€¢ deposit ${b.deposit_paid} â€¢ bundle ${b.bundle_price}</p>
+                      <p className="muted">{b.status} • deposit ${b.deposit_paid} • bundle ${b.bundle_price}</p>
                     </div>
                   ))}
                 </div>
@@ -1188,21 +1362,134 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
         {view === "orders" && (
           <section className="two-col">
             <div className="card card-pad">
-              <h3>Create bundle/order</h3>
-              <form className="form-grid" onSubmit={createBundle}>
-                <label>Name<input name="name" required /></label>
-                <label>Buyer<select name="customer_id"><option value="">None</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-                <label>Bundle price<input name="bundle_price" type="number" step="0.01" /></label>
-                <label>Deposit paid<input name="deposit_paid" type="number" step="0.01" /></label>
-                <label>Status<select name="status"><option value="hold">Hold</option><option value="paid">Paid</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></label>
-                <label className="full">Notes<textarea name="notes" /></label>
-                <button disabled={disabled} className="btn btn-primary" type="submit">Save bundle</button>
+              <div className="row-head">
+                <div>
+                  <h3>{editingBundle ? "Edit bundle/order" : "Create bundle/order"}</h3>
+                  <p className="muted">Pick the exact inventory items inside the bundle and set a price for each one.</p>
+                </div>
+                {editingBundle && (
+                  <button type="button" className="btn btn-secondary" onClick={() => resetBundleForm()}>
+                    Cancel edit
+                  </button>
+                )}
+              </div>
+
+              <form key={editingBundle?.id || "new-bundle"} className="form-grid" onSubmit={createBundle}>
+                <label>Name<input name="name" required defaultValue={editingBundle?.name || ""} /></label>
+                <label>
+                  Buyer
+                  <select className="flipstack-select" name="customer_id" defaultValue={editingBundle?.customer_id || ""}>
+                    <option value="">None</option>
+                    {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label>Bundle total<input name="bundle_price" type="number" step="0.01" defaultValue={editingBundle?.bundle_price || 0} /></label>
+                <label>Deposit paid<input name="deposit_paid" type="number" step="0.01" defaultValue={editingBundle?.deposit_paid || 0} /></label>
+                <label>
+                  Status
+                  <select className="flipstack-select" name="status" defaultValue={editingBundle?.status || "hold"}>
+                    <option value="hold">Hold</option>
+                    <option value="paid">Paid</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+
+                <div className="full bundle-item-picker">
+                  <div className="row-head">
+                    <div>
+                      <h4>Select bundle items</h4>
+                      <p className="muted">{selectedBundleItemIds.length} selected • item total {money(Object.values(bundleItemPrices).reduce((sum, price) => sum + Number(price || 0), 0))}</p>
+                    </div>
+                  </div>
+
+                  <div className="bundle-picker-grid">
+                    {items.map((item) => {
+                      const checked = selectedBundleItemIds.includes(item.id);
+                      return (
+                        <div key={item.id} className={checked ? "bundle-picker-card selected" : "bundle-picker-card"}>
+                          <label className="bundle-check-row">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => toggleBundleItem(item, e.target.checked)}
+                            />
+                            <span>
+                              <strong>{item.name}</strong>
+                              <small>{item.brand || "No brand"} • {item.size || "No size"} • {String(item.status || "").replace("_", " ")}</small>
+                            </span>
+                          </label>
+
+                          <label>
+                            Item price
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={bundleItemPrices[item.id] ?? Number(item.sold_price || item.target_sale_price || 0)}
+                              onChange={(e) => {
+                                const value = Number(e.target.value || 0);
+                                if (!selectedBundleItemIds.includes(item.id)) {
+                                  setSelectedBundleItemIds((current) => [...current, item.id]);
+                                }
+                                setBundleItemPrices((current) => ({ ...current, [item.id]: value }));
+                              }}
+                            />
+                          </label>
+
+                          <p className="muted">
+                            Landed {money(itemLandedCost(item))} • Est. profit {money((bundleItemPrices[item.id] ?? Number(item.sold_price || item.target_sale_price || 0)) - itemLandedCost(item))}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <label className="full">Notes<textarea name="notes" defaultValue={editingBundle?.notes || ""} /></label>
+                <button disabled={disabled} className="btn btn-primary" type="submit">
+                  {editingBundle ? "Save bundle changes" : "Save bundle"}
+                </button>
               </form>
             </div>
+
             <div className="card card-pad">
               <h3>Bundles</h3>
               <div className="table-list">
-                {bundles.map(b => <div className="row-card" key={b.id}><strong>{b.name}</strong><p className="muted">{b.status} â€¢ ${b.bundle_price} â€¢ deposit ${b.deposit_paid}</p></div>)}
+                {bundles.map((bundle) => {
+                  const lines = bundleLinesForBundle(bundle.id);
+                  const itemTotal = bundleItemsTotal(bundle.id);
+                  return (
+                    <div className="row-card" key={bundle.id}>
+                      <div className="row-head">
+                        <div>
+                          <strong>{bundle.name}</strong>
+                          <p className="muted">{bundle.status} • buyer {customerName(bundle.customer_id)} • bundle {money(bundle.bundle_price)} • items {money(itemTotal)} • deposit {money(bundle.deposit_paid)}</p>
+                        </div>
+                      </div>
+
+                      <div className="bundle-line-list">
+                        {lines.length === 0 && <p className="muted">No items attached yet.</p>}
+                        {lines.map((line: any) => (
+                          <div className="bundle-line" key={line.id}>
+                            <span>{line.item?.name || "Missing item"}</span>
+                            <strong>{money(line.item_price)}</strong>
+                          </div>
+                        ))}
+                      </div>
+
+                      {bundle.notes && <p className="muted">{bundle.notes}</p>}
+
+                      <div className="card-actions">
+                        <button type="button" className="btn btn-secondary" onClick={() => startEditBundle(bundle)}>
+                          Edit
+                        </button>
+                        <button type="button" className="btn btn-danger" onClick={() => deleteBundle(bundle.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </section>
@@ -1215,8 +1502,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
               <form className="form-grid" onSubmit={createHaul}>
                 <label>Name<input name="name" required /></label>
                 <label>Agent<input name="agent_name" /></label>
-                <label>Tracking link<input name="tracking_link" /></label>
-                <label>Vendor link<input name="vendor_link" /></label>
+                <label>Tracking link<input name="tracking_link" placeholder="https://tracking link" /></label>
                 <label>Status<input name="status" defaultValue="warehouse" /></label>
                 <label>Shipping cost<input name="total_shipping_cost" type="number" step="0.01" /></label>
                 <label>Total weight<input name="total_weight" type="number" step="0.01" /></label>
@@ -1229,7 +1515,24 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
             <div className="card card-pad">
               <h3>Haul vault</h3>
               <div className="table-list">
-                {hauls.map(h => <div className="row-card" key={h.id}><strong>{h.name}</strong><p className="muted">{h.agent_name} â€¢ {h.status} â€¢ ${h.total_shipping_cost}</p></div>)}
+                {hauls.map(h => (
+                  <div className="row-card" key={h.id}>
+                    <div className="row-head">
+                      <div>
+                        <strong>{h.name}</strong>
+                        <p className="muted">{h.agent_name || "No agent"} • {h.status} • {money(h.total_shipping_cost)}</p>
+                      </div>
+                    </div>
+                    <p className="muted">{h.carrier || "No carrier"} • {h.destination_country || "No country"} • {Number(h.total_weight || 0)} lb</p>
+                    {h.tracking_link ? (
+                      <a className="btn btn-secondary link-button" href={formatExternalUrl(h.tracking_link)} target="_blank" rel="noreferrer">
+                        Open tracking link
+                      </a>
+                    ) : (
+                      <p className="muted">No tracking link added.</p>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           </section>
@@ -1264,7 +1567,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
               <div className="card metric"><span>Revenue</span><strong>${revenue.toFixed(2)}</strong></div>
               <div className="card metric"><span>Capital</span><strong>${capital.toFixed(2)}</strong></div>
               <div className="card metric"><span>Profit</span><strong>${profit.toFixed(2)}</strong></div>
-              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "â€”"}</strong></div>
+              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "—"}</strong></div>
             </div>
           </section>
         )}
@@ -1296,7 +1599,16 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
               </form>
               {profile?.founder_access && <button type="button" className="btn btn-secondary" onClick={seedFounderData}>Seed starter data into my account</button>}
             </div>
-          </section>
+          
+            <div className="card card-pad">
+              <h3>Partner access</h3>
+              <p className="muted">Redeem a partner code to unlock Active Flipper free for 1 year.</p>
+              <form className="form-grid" onSubmit={redeemPartnerAccess}>
+                <label className="full">Partner code<input name="code" type="password" placeholder="Enter partner code" /></label>
+                <button className="btn btn-primary" type="submit">Redeem partner code</button>
+              </form>
+            </div>
+</section>
         )}
       </main>
     </div>

@@ -2,7 +2,7 @@ export type Profile = {
   user_id: string;
   email: string;
   display_name: string | null;
-  plan: "side_hustle" | "active_flipper" | "apex";
+  plan: "side_hustle" | "active_flipper" | "apex" | "apex_power";
   founder_access: boolean;
   billing_status: string;
   account_status: "active" | "warning" | "downgraded_grace" | "disabled";
@@ -35,7 +35,7 @@ export type InventoryItem = {
   colorway: string | null;
   size: string | null;
   source: string | null;
-  status: "available" | "pre_sold" | "sold" | "personal_rotation";
+  status: "available" | "draft" | "listed" | "reserved" | "pre_sold" | "sold" | "shipped" | "returned" | "personal_rotation" | "archived";
   product_cost: number;
   allocated_shipping_cost: number;
   target_sale_price: number;
@@ -71,5 +71,15 @@ export type Bundle = {
   deposit_paid: number;
   status: "hold" | "paid" | "delivered" | "cancelled";
   notes: string | null;
+  created_at: string;
+};
+
+
+export type BundleItem = {
+  id: string;
+  user_id: string;
+  bundle_id: string;
+  item_id: string;
+  item_price: number;
   created_at: string;
 };
