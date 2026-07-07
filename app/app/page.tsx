@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
@@ -698,7 +698,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                         <strong>{i.name}</strong>
                         <span className="pill pill-warn">${i.deposit_paid} deposit</span>
                       </div>
-                      <p className="muted">{i.brand} • {i.size}</p>
+                      <p className="muted">{i.brand} â€¢ {i.size}</p>
                     </button>
                   ))}
                 </div>
@@ -713,7 +713,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {dashboardHauls.slice(0, 5).map(h => (
                     <button type="button" className="row-card dashboard-row-button" key={h.id} onClick={() => setView("hauls")}>
                       <strong>{h.name}</strong>
-                      <p className="muted">{h.agent_name} • {h.status}</p>
+                      <p className="muted">{h.agent_name} â€¢ {h.status}</p>
                     </button>
                   ))}
                 </div>
@@ -916,7 +916,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   <div className="row-head catalog-card-head">
                     <div>
                       <strong>{item.name}</strong>
-                      <p className="muted">{item.brand} • {item.size} • {String(item.status || "").replace("_", " ")}</p>
+                      <p className="muted">{item.brand} â€¢ {item.size} â€¢ {String(item.status || "").replace("_", " ")}</p>
                     </div>
                     <span className="pill pill-green">${(Number(item.product_cost) + Number(item.allocated_shipping_cost)).toFixed(2)} landed</span>
                   </div>
@@ -932,8 +932,8 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   <div className="customer-detail-grid">
                     <div className="customer-detail"><span className="muted">Target</span><strong>${item.target_sale_price || 0}</strong></div>
                     <div className="customer-detail"><span className="muted">Deposit</span><strong>${item.deposit_paid || 0}</strong></div>
-                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "—"}</strong></div>
-                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "â€”"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "â€”"}</strong></div>
                   </div>
 
                   {item.notes && <p className="muted">{item.notes}</p>}
@@ -1058,7 +1058,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                       .replace(/\b\w/g, (char) => char.toUpperCase());
 
                   const prettyValue = (value: any) => {
-                    if (value === null || value === undefined || value === "") return "—";
+                    if (value === null || value === undefined || value === "") return "â€”";
                     if (typeof value === "boolean") return value ? "Yes" : "No";
                     if (Array.isArray(value)) return value.join(", ");
                     if (typeof value === "object") return JSON.stringify(value);
@@ -1131,13 +1131,13 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {items.filter(i => i.customer_id === selectedCustomer.id).map(i => (
                     <div className="row-card" key={i.id}>
                       <strong>{i.name}</strong>
-                      <p className="muted">{i.status} • deposit ${i.deposit_paid} • target ${i.target_sale_price}</p>
+                      <p className="muted">{i.status} â€¢ deposit ${i.deposit_paid} â€¢ target ${i.target_sale_price}</p>
                     </div>
                   ))}
                   {bundles.filter(b => b.customer_id === selectedCustomer.id).map(b => (
                     <div className="row-card" key={b.id}>
                       <strong>{b.name}</strong>
-                      <p className="muted">{b.status} • deposit ${b.deposit_paid} • bundle ${b.bundle_price}</p>
+                      <p className="muted">{b.status} â€¢ deposit ${b.deposit_paid} â€¢ bundle ${b.bundle_price}</p>
                     </div>
                   ))}
                 </div>
@@ -1163,7 +1163,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
             <div className="card card-pad">
               <h3>Bundles</h3>
               <div className="table-list">
-                {bundles.map(b => <div className="row-card" key={b.id}><strong>{b.name}</strong><p className="muted">{b.status} • ${b.bundle_price} • deposit ${b.deposit_paid}</p></div>)}
+                {bundles.map(b => <div className="row-card" key={b.id}><strong>{b.name}</strong><p className="muted">{b.status} â€¢ ${b.bundle_price} â€¢ deposit ${b.deposit_paid}</p></div>)}
               </div>
             </div>
           </section>
@@ -1190,7 +1190,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
             <div className="card card-pad">
               <h3>Haul vault</h3>
               <div className="table-list">
-                {hauls.map(h => <div className="row-card" key={h.id}><strong>{h.name}</strong><p className="muted">{h.agent_name} • {h.status} • ${h.total_shipping_cost}</p></div>)}
+                {hauls.map(h => <div className="row-card" key={h.id}><strong>{h.name}</strong><p className="muted">{h.agent_name} â€¢ {h.status} â€¢ ${h.total_shipping_cost}</p></div>)}
               </div>
             </div>
           </section>
@@ -1225,7 +1225,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
               <div className="card metric"><span>Revenue</span><strong>${revenue.toFixed(2)}</strong></div>
               <div className="card metric"><span>Capital</span><strong>${capital.toFixed(2)}</strong></div>
               <div className="card metric"><span>Profit</span><strong>${profit.toFixed(2)}</strong></div>
-              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "—"}</strong></div>
+              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "â€”"}</strong></div>
             </div>
           </section>
         )}
@@ -1263,3 +1263,6 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
+
+
