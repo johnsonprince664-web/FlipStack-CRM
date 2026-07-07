@@ -246,34 +246,63 @@ export default function AppPage() {
     }
   }
   async function uploadItemImages(itemId: string, fileList: FileList | null) {
+    if (!itemId) return;
     if (!fileList || fileList.length === 0) return;
 
     const uploadedUrls: string[] = [];
+
     for (const file of Array.from(fileList)) {
+      if (!file) continue;
+
       const ext = file.name.split(".").pop() || "png";
       const path = `${userId}/${itemId}/${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("inventory-images").upload(path, file, {
-        cacheControl: "3600",
-        upsert: false
-      });
+
+      const { error: uploadError } = await supabase.storage
+        .from("inventory-images")
+        .upload(path, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
       if (uploadError) throw uploadError;
 
-      const { data } = supabase.storage.from("inventory-images").getPublicUrl(path);
+      const { data } = supabase.storage
+        .from("inventory-images")
+        .getPublicUrl(path);
+
       uploadedUrls.push(data.publicUrl);
     }
 
-    const existing = editingItem?.image_urls || [];
-    await supabase.from("inventory_items").update({
-      image_urls: [...existing, ...uploadedUrls]
-    }).eq("id", itemId);
+    if (uploadedUrls.length === 0) return;
+
+    const { data: currentItem } = await supabase
+      .from("inventory_items")
+      .select("image_urls")
+      .eq("id", itemId)
+      .single();
+
+    const existing = Array.isArray((currentItem as any)?.image_urls)
+      ? (currentItem as any).image_urls
+      : [];
+
+    await supabase
+      .from("inventory_items")
+      .update({
+        image_urls: [...existing, ...uploadedUrls],
+      })
+      .eq("id", itemId);
   }
-
-
   async function saveItem(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (disabled) return setMessage("Account disabled. Rectify your limit first.");
-    const fd = new FormData(e.currentTarget);
-    const payload = {
+
+    if (disabled) {
+      return setMessage("Account disabled. Rectify your limit first.");
+    }
+
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+
+    const payload: any = {
       name: String(fd.get("name") || ""),
       brand: String(fd.get("brand") || ""),
       category: String(fd.get("category") || ""),
@@ -286,35 +315,45 @@ export default function AppPage() {
       allocated_shipping_cost: Number(fd.get("allocated_shipping_cost") || 0),
       target_sale_price: Number(fd.get("target_sale_price") || 0),
       deposit_paid: Number(fd.get("deposit_paid") || 0),
-      notes: String(fd.get("notes") || "")
+      notes: String(fd.get("notes") || ""),
     };
 
     let savedId = editingItem?.id || "";
-    let error: any = null;
 
-    if (editingItem) {
-      const result = await supabase.from("inventory_items").update(payload).eq("id", editingItem.id);
-      error = result.error;
-    } else {
-      const result = await supabase.from("inventory_items").insert(payload).select("id").single();
-      error = result.error;
-      savedId = result.data?.id || "";
-    }
+    try {
+      if (editingItem?.id) {
+        const { error } = await supabase
+          .from("inventory_items")
+          .update(payload)
+          .eq("id", editingItem.id);
 
-    if (error) setMessage(error.message);
-    else {
-      try {
-        const imageInput = e.currentTarget.elements.namedItem("images") as HTMLInputElement | null;
-        await uploadItemImages(savedId, imageInput?.files || null);
-      } catch (imageError: any) {
-        setMessage(`Item saved, but image upload failed: ${imageError.message}`);
-        refresh();
-        return;
+        if (error) throw error;
+        savedId = editingItem.id;
+      } else {
+        const { data, error } = await supabase
+          .from("inventory_items")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        savedId = data?.id || "";
       }
+
+      const imageInput = form.elements.namedItem("images") as HTMLInputElement | null;
+      const files = imageInput?.files || null;
+
+      if (files && files.length > 0) {
+        await uploadItemImages(savedId, files);
+      }
+
       setMessage(editingItem ? "Item updated." : "Item added.");
       setEditingItem(null);
-      e.currentTarget.reset();
-      refresh();
+      setShowInventoryForm(false);
+      form.reset();
+      await refresh();
+    } catch (err: any) {
+      setMessage(err.message || "Could not save item.");
     }
   }
 
@@ -1263,6 +1302,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
 
 
 
