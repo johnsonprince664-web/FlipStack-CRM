@@ -1,50 +1,33 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-
 const PRICE_MAP = {
-  active_monthly:
-    process.env.STRIPE_ACTIVE_MONTHLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_ACTIVE_MONTHLY ||
-    process.env.STRIPE_ACTIVE_FLIPPER_MONTHLY_PRICE_ID,
+  active_monthly: "price_1TpyR2H1V3qPez5gT3DSGIOp",
+  active_yearly: "price_1TpySLH1V3qPez5gr0mdvEiE",
+  apex_monthly: "price_1TpyTDH1V3qPez5gWJDaCW8m",
+  apex_yearly: "price_1TpyTrH1V3qPez5gFI13oARZ",
 
-  active_yearly:
-    process.env.STRIPE_ACTIVE_YEARLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_ACTIVE_YEARLY ||
-    process.env.STRIPE_ACTIVE_FLIPPER_YEARLY_PRICE_ID,
-
-  apex_monthly:
-    process.env.STRIPE_APEX_MONTHLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_APEX_MONTHLY,
-
-  apex_yearly:
-    process.env.STRIPE_APEX_YEARLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_APEX_YEARLY,
-
-  active_flipper_monthly:
-    process.env.STRIPE_ACTIVE_MONTHLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_ACTIVE_MONTHLY ||
-    process.env.STRIPE_ACTIVE_FLIPPER_MONTHLY_PRICE_ID,
-
-  active_flipper_yearly:
-    process.env.STRIPE_ACTIVE_YEARLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_ACTIVE_YEARLY ||
-    process.env.STRIPE_ACTIVE_FLIPPER_YEARLY_PRICE_ID,
-
-  apex_power_monthly:
-    process.env.STRIPE_APEX_MONTHLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_APEX_MONTHLY,
-
-  apex_power_yearly:
-    process.env.STRIPE_APEX_YEARLY_PRICE_ID ||
-    process.env.STRIPE_PRICE_APEX_YEARLY,
+  active_flipper_monthly: "price_1TpyR2H1V3qPez5gT3DSGIOp",
+  active_flipper_yearly: "price_1TpySLH1V3qPez5gr0mdvEiE",
+  apex_power_monthly: "price_1TpyTDH1V3qPez5gWJDaCW8m",
+  apex_power_yearly: "price_1TpyTrH1V3qPez5gFI13oARZ",
 } as const;
 
 type PlanKey = keyof typeof PRICE_MAP;
 
 export async function POST(req: Request) {
   try {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+
+    if (!secretKey) {
+      return NextResponse.json(
+        { error: "Missing STRIPE_SECRET_KEY." },
+        { status: 500 }
+      );
+    }
+
+    const stripe = new Stripe(secretKey);
+
     const body = await req.json();
     const plan = body.plan as PlanKey | undefined;
 
@@ -61,21 +44,13 @@ export async function POST(req: Request) {
 
     const priceId = PRICE_MAP[plan];
 
-    if (!priceId) {
-      return NextResponse.json(
-        {
-          error: "Missing Stripe price ID for this plan.",
-          planReceived: plan,
-          availablePlans: Object.keys(PRICE_MAP),
-        },
-        { status: 400 }
-      );
-    }
-
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3002";
+    const origin =
+      req.headers.get("origin") ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      "http://localhost:3000";
 
     const session = await stripe.checkout.sessions.create({
-      ui_mode: "embedded" as any,
+      ui_mode: "embedded_page" as any,
       mode: "subscription",
       line_items: [
         {
@@ -83,7 +58,7 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      return_url: `${siteUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+      return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         plan,
       },

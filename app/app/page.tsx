@@ -396,7 +396,46 @@ export default function AppPage() {
     setMessage("Founder access unlocked.");
     refresh();
   }
+async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
+  e.preventDefault();
 
+  const code = String(new FormData(e.currentTarget).get("code") || "");
+
+  const res = await fetch("/api/partner/redeem", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ code }),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    return setMessage(json.error || "Could not redeem partner code.");
+  }
+
+  setMessage("Partner code redeemed. Active Flipper unlocked free for 1 year.");
+  refresh();
+}
+<div className="card card-pad full">
+  <h3>Partner access</h3>
+  <p className="muted">
+    Redeem a partner code to unlock Active Flipper free for 1 year.
+  </p>
+
+  <form className="form-grid" onSubmit={redeemPartnerAccess}>
+    <label className="full">
+      Partner code
+      <input name="code" placeholder="Enter partner code" />
+    </label>
+
+    <button className="btn btn-primary" type="submit">
+      Redeem partner code
+    </button>
+  </form>
+</div>
   async function seedFounderData() {
     const res = await fetch("/api/founder/seed-demo", {
       method: "POST",
