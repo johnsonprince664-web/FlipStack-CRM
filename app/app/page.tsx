@@ -1606,7 +1606,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   Items coming in this haul
                   <textarea
                     name="item_list"
-                    defaultValue={(editingHaul as any)?.item_list || ""}
+                    defaultValue={editingHaul?.destination_country || ""}
                     placeholder="Example: 2 Sp5der hoodies, 1 Yeezy slide, 3 Hellstar tees"
                   />
                 </label>
@@ -1651,20 +1651,12 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
 
                 <label>
                   Total haul cost
-                  <input
-                    value={`${haulTotalCost.toFixed(2)}`}
-                    readOnly
-                    disabled
-                  />
+                  <input value={`${haulTotalCost.toFixed(2)}`} readOnly disabled />
                 </label>
 
                 <label>
                   Landed cost per item
-                  <input
-                    value={`${haulLandedPerItem.toFixed(2)} each`}
-                    readOnly
-                    disabled
-                  />
+                  <input value={`${haulLandedPerItem.toFixed(2)} each`} readOnly disabled />
                 </label>
 
                 <label className="full">
@@ -1690,36 +1682,8 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                 </label>
 
                 <label>
-                  Total weight
-                  <input
-                    name="total_weight"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editingHaul?.total_weight || 0}
-                  />
-                </label>
-
-                <label>
-                  Declared value
-                  <input
-                    name="declared_value"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editingHaul?.declared_value || 0}
-                  />
-                </label>
-
-                <label>
                   Carrier
                   <input name="carrier" defaultValue={editingHaul?.carrier || ""} />
-                </label>
-
-                <label>
-                  Country
-                  <input
-                    name="destination_country"
-                    defaultValue={editingHaul?.destination_country || "United States"}
-                  />
                 </label>
 
                 <button disabled={disabled} className="btn btn-primary" type="submit">
@@ -1737,8 +1701,9 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                 )}
 
                 {hauls.map(h => {
-                  const itemCount = Number((h as any).item_count || 0);
-                  const productCost = Number((h as any).total_product_cost || 0);
+                  const itemList = h.destination_country || "";
+                  const itemCount = Number(h.total_weight || 0);
+                  const productCost = Number(h.declared_value || 0);
                   const shippingOnly = Number(h.total_shipping_cost || 0);
                   const totalCost = productCost + shippingOnly;
                   const landedEach = itemCount > 0 ? totalCost / itemCount : 0;
@@ -1755,9 +1720,9 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                         {h.agent_name || "No agent"} - {h.carrier || "No carrier"} - {itemCount} items
                       </p>
 
-                      {(h as any).item_list && (
+                      {itemList && (
                         <p className="muted">
-                          Items: {(h as any).item_list}
+                          Items: {itemList}
                         </p>
                       )}
 
@@ -1767,10 +1732,6 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
 
                       <p className="muted">
                         Total haul cost: ${totalCost.toFixed(2)} - Landed: ${landedEach.toFixed(2)} each
-                      </p>
-
-                      <p className="muted">
-                        Weight: {Number(h.total_weight || 0).toFixed(2)} - Declared: ${Number(h.declared_value || 0).toFixed(2)} - {h.destination_country || "No country"}
                       </p>
 
                       <div className="card-actions">
@@ -1790,8 +1751,8 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                           className="btn btn-secondary compact-action"
                           onClick={() => {
                             setEditingHaul(h);
-                            setHaulItemCount(Number((h as any).item_count || 0));
-                            setHaulProductCost(Number((h as any).total_product_cost || 0));
+                            setHaulItemCount(Number(h.total_weight || 0));
+                            setHaulProductCost(Number(h.declared_value || 0));
                             setHaulShippingCost(Number(h.total_shipping_cost || 0));
                             window.scrollTo({ top: 0, behavior: "smooth" });
                           }}
@@ -1890,6 +1851,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
 
 
 
