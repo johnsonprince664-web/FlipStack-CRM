@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
@@ -43,6 +43,7 @@ export default function AppPage() {
   const [bundleItemPrices, setBundleItemPrices] = useState<Record<string, number>>({});
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [editingHaul, setEditingHaul] = useState<Haul | null>(null);
   const [selectedShippingIds, setSelectedShippingIds] = useState<string[]>([]);
   const [shippingCost, setShippingCost] = useState(0);
   const [message, setMessage] = useState("");
@@ -249,6 +250,13 @@ export default function AppPage() {
       Object.fromEntries(lines.map((line) => [line.item_id, Number(line.item_price || 0)]))
     );
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+
+  function normalizeUrl(value: string | null | undefined) {
+    const url = String(value || "").trim();
+    if (!url) return "";
+    return /^https?:\/\//i.test(url) ? url : `https://${url}`;
   }
 
   async function signOut() {
@@ -487,6 +495,27 @@ export default function AppPage() {
       e.currentTarget.reset();
       await refresh();
     }
+  }
+
+  async function deleteHaul(id: string) {
+    if (!confirm("Delete this haul? This cannot be undone.")) return;
+
+    const { error } = await supabase
+      .from("hauls")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    if (editingHaul?.id === id) {
+      setEditingHaul(null);
+    }
+
+    setMessage("Haul deleted.");
+    await refresh();
   }
   async function createBundle(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -902,7 +931,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                         <strong>{i.name}</strong>
                         <span className="pill pill-warn">${i.deposit_paid} deposit</span>
                       </div>
-                      <p className="muted">{i.brand} • {i.size}</p>
+                      <p className="muted">{i.brand} â€¢ {i.size}</p>
                     </button>
                   ))}
                 </div>
@@ -917,7 +946,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {dashboardHauls.slice(0, 5).map(h => (
                     <button type="button" className="row-card dashboard-row-button" key={h.id} onClick={() => setView("hauls")}>
                       <strong>{h.name}</strong>
-                      <p className="muted">{h.agent_name} • {h.status}</p>
+                      <p className="muted">{h.agent_name} â€¢ {h.status}</p>
                     </button>
                   ))}
                 </div>
@@ -1123,7 +1152,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   <div className="row-head catalog-card-head">
                     <div>
                       <strong>{item.name}</strong>
-                      <p className="muted">{item.brand} • {item.size} • {String(item.status || "").replace("_", " ")}</p>
+                      <p className="muted">{item.brand} â€¢ {item.size} â€¢ {String(item.status || "").replace("_", " ")}</p>
                     </div>
                     <span className="pill pill-green">${(Number(item.product_cost) + Number(item.allocated_shipping_cost)).toFixed(2)} landed</span>
                   </div>
@@ -1141,12 +1170,12 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                     <div className="customer-detail"><span className="muted">Shipping</span><strong>{money(item.allocated_shipping_cost)}</strong></div>
                     <div className="customer-detail"><span className="muted">Total landed</span><strong>{money(itemLandedCost(item))}</strong></div>
                     <div className="customer-detail"><span className="muted">Target sale</span><strong>{money(item.target_sale_price)}</strong></div>
-                    <div className="customer-detail"><span className="muted">Sold / actual</span><strong>{Number(item.sold_price || 0) > 0 ? money(item.sold_price) : "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Sold / actual</span><strong>{Number(item.sold_price || 0) > 0 ? money(item.sold_price) : "â€”"}</strong></div>
                     <div className="customer-detail"><span className="muted">Estimated profit</span><strong className={itemEstimatedProfit(item) >= 0 ? "good" : "danger"}>{money(itemEstimatedProfit(item))}</strong></div>
                     <div className="customer-detail"><span className="muted">Deposit</span><strong>{money(item.deposit_paid)}</strong></div>
                     <div className="customer-detail"><span className="muted">Buyer</span><strong>{customerName(item.customer_id)}</strong></div>
-                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "—"}</strong></div>
-                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "—"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Category</span><strong>{item.category || "â€”"}</strong></div>
+                    <div className="customer-detail"><span className="muted">Source</span><strong>{item.source || "â€”"}</strong></div>
                   </div>
 
                   {item.notes && <p className="muted">{item.notes}</p>}
@@ -1271,7 +1300,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                       .replace(/\b\w/g, (char) => char.toUpperCase());
 
                   const prettyValue = (value: any) => {
-                    if (value === null || value === undefined || value === "") return "—";
+                    if (value === null || value === undefined || value === "") return "â€”";
                     if (typeof value === "boolean") return value ? "Yes" : "No";
                     if (Array.isArray(value)) return value.join(", ");
                     if (typeof value === "object") return JSON.stringify(value);
@@ -1344,13 +1373,13 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   {items.filter(i => i.customer_id === selectedCustomer.id).map(i => (
                     <div className="row-card" key={i.id}>
                       <strong>{i.name}</strong>
-                      <p className="muted">{i.status} • deposit ${i.deposit_paid} • target ${i.target_sale_price}</p>
+                      <p className="muted">{i.status} â€¢ deposit ${i.deposit_paid} â€¢ target ${i.target_sale_price}</p>
                     </div>
                   ))}
                   {bundles.filter(b => b.customer_id === selectedCustomer.id).map(b => (
                     <div className="row-card" key={b.id}>
                       <strong>{b.name}</strong>
-                      <p className="muted">{b.status} • deposit ${b.deposit_paid} • bundle ${b.bundle_price}</p>
+                      <p className="muted">{b.status} â€¢ deposit ${b.deposit_paid} â€¢ bundle ${b.bundle_price}</p>
                     </div>
                   ))}
                 </div>
@@ -1399,7 +1428,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                   <div className="row-head">
                     <div>
                       <h4>Select bundle items</h4>
-                      <p className="muted">{selectedBundleItemIds.length} selected • item total {money(Object.values(bundleItemPrices).reduce((sum, price) => sum + Number(price || 0), 0))}</p>
+                      <p className="muted">{selectedBundleItemIds.length} selected â€¢ item total {money(Object.values(bundleItemPrices).reduce((sum, price) => sum + Number(price || 0), 0))}</p>
                     </div>
                   </div>
 
@@ -1416,7 +1445,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                             />
                             <span>
                               <strong>{item.name}</strong>
-                              <small>{item.brand || "No brand"} • {item.size || "No size"} • {String(item.status || "").replace("_", " ")}</small>
+                              <small>{item.brand || "No brand"} â€¢ {item.size || "No size"} â€¢ {String(item.status || "").replace("_", " ")}</small>
                             </span>
                           </label>
 
@@ -1437,7 +1466,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                           </label>
 
                           <p className="muted">
-                            Landed {money(itemLandedCost(item))} • Est. profit {money((bundleItemPrices[item.id] ?? Number(item.sold_price || item.target_sale_price || 0)) - itemLandedCost(item))}
+                            Landed {money(itemLandedCost(item))} â€¢ Est. profit {money((bundleItemPrices[item.id] ?? Number(item.sold_price || item.target_sale_price || 0)) - itemLandedCost(item))}
                           </p>
                         </div>
                       );
@@ -1463,7 +1492,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                       <div className="row-head">
                         <div>
                           <strong>{bundle.name}</strong>
-                          <p className="muted">{bundle.status} • buyer {customerName(bundle.customer_id)} • bundle {money(bundle.bundle_price)} • items {money(itemTotal)} • deposit {money(bundle.deposit_paid)}</p>
+                          <p className="muted">{bundle.status} â€¢ buyer {customerName(bundle.customer_id)} â€¢ bundle {money(bundle.bundle_price)} â€¢ items {money(itemTotal)} â€¢ deposit {money(bundle.deposit_paid)}</p>
                         </div>
                       </div>
 
@@ -1494,50 +1523,169 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
             </div>
           </section>
         )}
-
         {view === "hauls" && (
           <section className="two-col">
             <div className="card card-pad">
-              <h3>Add haul</h3>
-              <form className="form-grid" onSubmit={createHaul}>
-                <label>Name<input name="name" required /></label>
-                <label>Agent<input name="agent_name" /></label>
-                <label>Tracking link<input name="tracking_link" placeholder="https://tracking link" /></label>
-                <label>Status<input name="status" defaultValue="warehouse" /></label>
-                <label>Shipping cost<input name="total_shipping_cost" type="number" step="0.01" /></label>
-                <label>Total weight<input name="total_weight" type="number" step="0.01" /></label>
-                <label>Declared value<input name="declared_value" type="number" step="0.01" /></label>
-                <label>Carrier<input name="carrier" /></label>
-                <label>Country<input name="destination_country" defaultValue="United States" /></label>
-                <button disabled={disabled} className="btn btn-primary" type="submit">Save haul</button>
+              <div className="row-head">
+                <h3>{editingHaul ? "Edit haul" : "Add haul"}</h3>
+                {editingHaul && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary compact-action"
+                    onClick={() => setEditingHaul(null)}
+                  >
+                    Cancel edit
+                  </button>
+                )}
+              </div>
+
+              <form
+                key={editingHaul?.id || "new-haul"}
+                className="form-grid"
+                onSubmit={createHaul}
+              >
+                <label>
+                  Name
+                  <input name="name" defaultValue={editingHaul?.name || ""} required />
+                </label>
+
+                <label>
+                  Agent
+                  <input name="agent_name" defaultValue={editingHaul?.agent_name || ""} />
+                </label>
+
+                <label className="full">
+                  Tracking link
+                  <input
+                    name="tracking_link"
+                    defaultValue={editingHaul?.tracking_link || ""}
+                    placeholder="Paste tracking link here"
+                  />
+                </label>
+
+                <label>
+                  Status
+                  <select name="status" defaultValue={editingHaul?.status || "warehouse"}>
+                    <option value="warehouse">Warehouse</option>
+                    <option value="ordered">Ordered</option>
+                    <option value="in_transit">In transit</option>
+                    <option value="customs">Customs</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="received">Received</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+
+                <label>
+                  Shipping cost
+                  <input
+                    name="total_shipping_cost"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editingHaul?.total_shipping_cost || 0}
+                  />
+                </label>
+
+                <label>
+                  Total weight
+                  <input
+                    name="total_weight"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editingHaul?.total_weight || 0}
+                  />
+                </label>
+
+                <label>
+                  Declared value
+                  <input
+                    name="declared_value"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editingHaul?.declared_value || 0}
+                  />
+                </label>
+
+                <label>
+                  Carrier
+                  <input name="carrier" defaultValue={editingHaul?.carrier || ""} />
+                </label>
+
+                <label>
+                  Country
+                  <input
+                    name="destination_country"
+                    defaultValue={editingHaul?.destination_country || "United States"}
+                  />
+                </label>
+
+                <button disabled={disabled} className="btn btn-primary" type="submit">
+                  {editingHaul ? "Update haul" : "Save haul"}
+                </button>
               </form>
             </div>
+
             <div className="card card-pad">
               <h3>Haul vault</h3>
+
               <div className="table-list">
-                {hauls.map(h => (
-                  <div className="row-card" key={h.id}>
-                    <div className="row-head">
-                      <div>
+                {hauls.length === 0 && (
+                  <p className="muted">No hauls yet. Add one to start tracking shipping.</p>
+                )}
+
+                {hauls.map(h => {
+                  const trackingUrl = normalizeUrl(h.tracking_link);
+
+                  return (
+                    <div className="row-card" key={h.id}>
+                      <div className="row-head">
                         <strong>{h.name}</strong>
-                        <p className="muted">{h.agent_name || "No agent"} • {h.status} • {money(h.total_shipping_cost)}</p>
+                        <span className="pill pill-green">{h.status}</span>
+                      </div>
+
+                      <p className="muted">
+                        {h.agent_name || "No agent"} - {h.carrier || "No carrier"} - ${Number(h.total_shipping_cost || 0).toFixed(2)}
+                      </p>
+
+                      <p className="muted">
+                        Weight: {Number(h.total_weight || 0).toFixed(2)} - Declared: ${Number(h.declared_value || 0).toFixed(2)} - {h.destination_country || "No country"}
+                      </p>
+
+                      <div className="card-actions">
+                        {trackingUrl && (
+                          <a
+                            className="btn btn-secondary compact-action"
+                            href={trackingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open tracking
+                          </a>
+                        )}
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary compact-action"
+                          onClick={() => setEditingHaul(h)}
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-danger compact-action"
+                          onClick={() => deleteHaul(h.id)}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
-                    <p className="muted">{h.carrier || "No carrier"} • {h.destination_country || "No country"} • {Number(h.total_weight || 0)} lb</p>
-                    {h.tracking_link ? (
-                      <a className="btn btn-secondary link-button" href={formatExternalUrl(h.tracking_link)} target="_blank" rel="noreferrer">
-                        Open tracking link
-                      </a>
-                    ) : (
-                      <p className="muted">No tracking link added.</p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </section>
         )}
-
         {view === "shipping" && (
           <section className="card card-pad">
             <h3>Shippo label creator</h3>
@@ -1567,7 +1715,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
               <div className="card metric"><span>Revenue</span><strong>${revenue.toFixed(2)}</strong></div>
               <div className="card metric"><span>Capital</span><strong>${capital.toFixed(2)}</strong></div>
               <div className="card metric"><span>Profit</span><strong>${profit.toFixed(2)}</strong></div>
-              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "—"}</strong></div>
+              <div className="card metric"><span>ROI</span><strong>{capital > 0 ? `${((profit / capital) * 100).toFixed(1)}%` : "â€”"}</strong></div>
             </div>
           </section>
         )}
@@ -1614,6 +1762,9 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
+
+
 
 
 
