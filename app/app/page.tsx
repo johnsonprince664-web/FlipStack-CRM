@@ -489,25 +489,27 @@ export default function AppPage() {
     const form = e.currentTarget;
     const fd = new FormData(form);
 
+    const itemList = String(fd.get("item_list") || "");
+    const itemCount = Number(fd.get("item_count") || haulItemCount || 0);
     const productCost = Number(fd.get("total_product_cost") || haulProductCost || 0);
     const shippingOnly = Number(fd.get("total_shipping_cost") || haulShippingCost || 0);
-    const count = Number(fd.get("item_count") || haulItemCount || 0);
 
     const payload: any = {
       name: String(fd.get("name") || ""),
       agent_name: String(fd.get("agent_name") || ""),
       tracking_link: String(fd.get("tracking_link") || ""),
       status: String(fd.get("status") || "warehouse"),
-
-      item_count: count,
-      item_list: String(fd.get("item_list") || ""),
-      total_product_cost: productCost,
-
-      total_shipping_cost: shippingOnly,
-      total_weight: Number(fd.get("total_weight") || 0),
-      declared_value: Number(fd.get("declared_value") || 0),
       carrier: String(fd.get("carrier") || ""),
-      destination_country: String(fd.get("destination_country") || "")
+
+      // SAFE EXISTING COLUMNS ONLY:
+      // destination_country stores item list
+      // total_weight stores item count
+      // declared_value stores product cost only
+      // total_shipping_cost stores shipping only
+      destination_country: itemList,
+      total_weight: itemCount,
+      declared_value: productCost,
+      total_shipping_cost: shippingOnly
     };
 
     try {
@@ -538,7 +540,6 @@ export default function AppPage() {
       setMessage(err.message || "Could not save haul.");
     }
   }
-
   async function deleteHaul(id: string) {
     if (!confirm("Delete this haul? This cannot be undone.")) return;
 
@@ -1851,6 +1852,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
 
 
 
