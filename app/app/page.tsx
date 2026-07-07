@@ -44,6 +44,9 @@ export default function AppPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [editingHaul, setEditingHaul] = useState<Haul | null>(null);
+  const [haulItemCount, setHaulItemCount] = useState(0);
+  const [haulProductCost, setHaulProductCost] = useState(0);
+  const [haulShippingCost, setHaulShippingCost] = useState(0);
   const [selectedShippingIds, setSelectedShippingIds] = useState<string[]>([]);
   const [shippingCost, setShippingCost] = useState(0);
   const [message, setMessage] = useState("");
@@ -53,6 +56,9 @@ export default function AppPage() {
 
   const disabled = profile?.account_status === "disabled";
   const plan = (profile?.plan || "side_hustle") as PlanId;
+
+  const haulTotalCost = Number(haulProductCost || 0) + Number(haulShippingCost || 0);
+  const haulLandedPerItem = Number(haulItemCount || 0) > 0 ? haulTotalCost / Number(haulItemCount || 0) : 0;
 
   async function refresh() {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -475,25 +481,61 @@ export default function AppPage() {
   }
   async function createHaul(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (disabled) return setMessage("Account disabled. Rectify your limit first.");
-    const fd = new FormData(e.currentTarget);
-    const payload = {
+
+    if (disabled) {
+      return setMessage("Account disabled. Rectify your limit first.");
+    }
+
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+
+    const productCost = Number(fd.get("total_product_cost") || haulProductCost || 0);
+    const shippingOnly = Number(fd.get("total_shipping_cost") || haulShippingCost || 0);
+    const count = Number(fd.get("item_count") || haulItemCount || 0);
+
+    const payload: any = {
       name: String(fd.get("name") || ""),
       agent_name: String(fd.get("agent_name") || ""),
       tracking_link: String(fd.get("tracking_link") || ""),
       status: String(fd.get("status") || "warehouse"),
-      total_shipping_cost: Number(fd.get("total_shipping_cost") || 0),
+
+      item_count: count,
+      item_list: String(fd.get("item_list") || ""),
+      total_product_cost: productCost,
+
+      total_shipping_cost: shippingOnly,
       total_weight: Number(fd.get("total_weight") || 0),
       declared_value: Number(fd.get("declared_value") || 0),
       carrier: String(fd.get("carrier") || ""),
       destination_country: String(fd.get("destination_country") || "")
     };
-    const { error } = await supabase.from("hauls").insert(payload);
-    if (error) setMessage(error.message);
-    else {
-      setMessage("Haul saved.");
-      e.currentTarget.reset();
+
+    try {
+      if (editingHaul?.id) {
+        const { error } = await supabase
+          .from("hauls")
+          .update(payload)
+          .eq("id", editingHaul.id);
+
+        if (error) throw error;
+        setMessage("Haul updated.");
+      } else {
+        const { error } = await supabase
+          .from("hauls")
+          .insert(payload);
+
+        if (error) throw error;
+        setMessage("Haul saved.");
+      }
+
+      setEditingHaul(null);
+      setHaulItemCount(0);
+      setHaulProductCost(0);
+      setHaulShippingCost(0);
+      form.reset();
       await refresh();
+    } catch (err: any) {
+      setMessage(err.message || "Could not save haul.");
     }
   }
 
@@ -1528,11 +1570,17 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
             <div className="card card-pad">
               <div className="row-head">
                 <h3>{editingHaul ? "Edit haul" : "Add haul"}</h3>
+
                 {editingHaul && (
                   <button
                     type="button"
                     className="btn btn-secondary compact-action"
-                    onClick={() => setEditingHaul(null)}
+                    onClick={() => {
+                      setEditingHaul(null);
+                      setHaulItemCount(0);
+                      setHaulProductCost(0);
+                      setHaulShippingCost(0);
+                    }}
                   >
                     Cancel edit
                   </button>
@@ -1555,6 +1603,71 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                 </label>
 
                 <label className="full">
+                  Items coming in this haul
+                  <textarea
+                    name="item_list"
+                    defaultValue={(editingHaul as any)?.item_list || ""}
+                    placeholder="Example: 2 Sp5der hoodies, 1 Yeezy slide, 3 Hellstar tees"
+                  />
+                </label>
+
+                <label>
+                  Item count
+                  <input
+                    name="item_count"
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={haulItemCount}
+                    onChange={e => setHaulItemCount(Number(e.target.value || 0))}
+                  />
+                </label>
+
+                <label>
+                  Product cost only
+                  <input
+                    name="total_product_cost"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={haulProductCost}
+                    onChange={e => setHaulProductCost(Number(e.target.value || 0))}
+                    placeholder="What you paid for the items only"
+                  />
+                </label>
+
+                <label>
+                  Shipping cost only
+                  <input
+                    name="total_shipping_cost"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={haulShippingCost}
+                    onChange={e => setHaulShippingCost(Number(e.target.value || 0))}
+                    placeholder="Shipping only"
+                  />
+                </label>
+
+                <label>
+                  Total haul cost
+                  <input
+                    value={`${haulTotalCost.toFixed(2)}`}
+                    readOnly
+                    disabled
+                  />
+                </label>
+
+                <label>
+                  Landed cost per item
+                  <input
+                    value={`${haulLandedPerItem.toFixed(2)} each`}
+                    readOnly
+                    disabled
+                  />
+                </label>
+
+                <label className="full">
                   Tracking link
                   <input
                     name="tracking_link"
@@ -1574,16 +1687,6 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                     <option value="received">Received</option>
                     <option value="cancelled">Cancelled</option>
                   </select>
-                </label>
-
-                <label>
-                  Shipping cost
-                  <input
-                    name="total_shipping_cost"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editingHaul?.total_shipping_cost || 0}
-                  />
                 </label>
 
                 <label>
@@ -1634,6 +1737,11 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                 )}
 
                 {hauls.map(h => {
+                  const itemCount = Number((h as any).item_count || 0);
+                  const productCost = Number((h as any).total_product_cost || 0);
+                  const shippingOnly = Number(h.total_shipping_cost || 0);
+                  const totalCost = productCost + shippingOnly;
+                  const landedEach = itemCount > 0 ? totalCost / itemCount : 0;
                   const trackingUrl = normalizeUrl(h.tracking_link);
 
                   return (
@@ -1644,7 +1752,21 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                       </div>
 
                       <p className="muted">
-                        {h.agent_name || "No agent"} - {h.carrier || "No carrier"} - ${Number(h.total_shipping_cost || 0).toFixed(2)}
+                        {h.agent_name || "No agent"} - {h.carrier || "No carrier"} - {itemCount} items
+                      </p>
+
+                      {(h as any).item_list && (
+                        <p className="muted">
+                          Items: {(h as any).item_list}
+                        </p>
+                      )}
+
+                      <p className="muted">
+                        Product cost: ${productCost.toFixed(2)} - Shipping: ${shippingOnly.toFixed(2)}
+                      </p>
+
+                      <p className="muted">
+                        Total haul cost: ${totalCost.toFixed(2)} - Landed: ${landedEach.toFixed(2)} each
                       </p>
 
                       <p className="muted">
@@ -1666,7 +1788,13 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
                         <button
                           type="button"
                           className="btn btn-secondary compact-action"
-                          onClick={() => setEditingHaul(h)}
+                          onClick={() => {
+                            setEditingHaul(h);
+                            setHaulItemCount(Number((h as any).item_count || 0));
+                            setHaulProductCost(Number((h as any).total_product_cost || 0));
+                            setHaulShippingCost(Number(h.total_shipping_cost || 0));
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
                         >
                           Edit
                         </button>
@@ -1762,6 +1890,7 @@ async function redeemPartnerAccess(e: FormEvent<HTMLFormElement>) {
     </div>
   );
 }
+
 
 
 
